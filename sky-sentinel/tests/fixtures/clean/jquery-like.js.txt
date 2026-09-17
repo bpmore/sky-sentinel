@@ -1,0 +1,1 @@
+(function(global){var version="3.7.1";var arr=[];var slice=arr.slice;function jQuery(sel){return new jQuery.fn.init(sel);}global.jQuery=jQuery;})(window);

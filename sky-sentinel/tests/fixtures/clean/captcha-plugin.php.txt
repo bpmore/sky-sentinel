@@ -1,0 +1,3 @@
+<?php
+/* A real captcha plugin says this once and is not a lure. */
+echo '<label>' . esc_html__('I am not a robot', 'captcha') . '</label>';

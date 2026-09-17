@@ -1,0 +1,2 @@
+/* pdf.js style: decodes base64 fonts, never new Function */
+var bytes = atob(fontData); var arr = new Uint8Array(bytes.length); for (var i = 0; i < bytes.length; i++) { arr[i] = bytes.charCodeAt(i); }

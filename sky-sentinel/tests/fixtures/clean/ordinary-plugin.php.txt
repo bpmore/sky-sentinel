@@ -1,0 +1,7 @@
+<?php
+/* Plugin Name: Ordinary */
+add_action('admin_init', function () {
+    if (isset($_POST['ordinary_nonce']) && isset($_POST['ordinary_value'])) {
+        update_option('ordinary_value', sanitize_text_field($_POST['ordinary_value']));
+    }
+});

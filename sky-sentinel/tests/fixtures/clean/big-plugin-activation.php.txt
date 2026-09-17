@@ -1,0 +1,5 @@
+<?php
+/* Gravity Forms style: activation hook here, upload dir there, a copy() somewhere else, thousands of lines apart. */
+register_activation_hook(__FILE__, array('GF', 'activate'));
+function gf_logs_dir() { $u = wp_upload_dir(); return $u['basedir'] . '/gravity_forms/logs'; }
+function gf_export_backup($from, $to) { return copy($from, $to); }

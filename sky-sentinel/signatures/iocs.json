@@ -1,0 +1,52 @@
+{
+  "version": "2026-09-16",
+  "source": "published indicators for the EtherHiding / ClickFix campaign family targeting WordPress: decoded loader payloads, observed infrastructure, tooling fingerprints",
+  "contracts": [
+    "0xB6bC9e1D",
+    "bC1f2",
+    "0x58460d0b",
+    "6496"
+  ],
+  "contract_regex": [
+    "0xB6bC9e1D[0-9a-fA-F]{24,32}bC1f2",
+    "0x58460d0b[0-9a-fA-F]{24,32}6496"
+  ],
+  "strings": [
+    "b68d1809",
+    "7f6210a0",
+    "_417b5fd2ce",
+    "_3f86a641c7",
+    "api.php?s=",
+    "wpFrontProbe05",
+    "sh-05193152"
+  ],
+  "rpc_hosts": [
+    "1rpc.io/matic",
+    "polygon-bor-rpc.publicnode.com",
+    "rpc.ankr.com/polygon",
+    "polygon.gateway.tenderly.co",
+    "polygon-public.nodies.app",
+    "polygon.drpc.org",
+    "polygon-mainnet.public.blastapi.io",
+    "rpc-mainnet.matic.quiknode.pro",
+    "mainnet.base.org",
+    "base.publicnode.com",
+    "base.drpc.org",
+    "1rpc.io/base"
+  ],
+  "attacker_ips": [
+    "194.165.17.13",
+    "149.22.95.74",
+    "213.35.106.249",
+    "165.231.182.138",
+    "158.173.21.18",
+    "138.199.59.139",
+    "192.42.116.49"
+  ],
+  "tooling_user_agents": [
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0"
+  ],
+  "_note": "Plaintext indicators only. Sentinel matches these as strings and never contacts any of these hosts."
+}

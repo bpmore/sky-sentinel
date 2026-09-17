@@ -1,0 +1,1 @@
+(function(){var n=0;var items=document.querySelectorAll('.card');for(var i=0;i<items.length;i++){n+=items[i].offsetHeight;}window.cardHeight=n;})();

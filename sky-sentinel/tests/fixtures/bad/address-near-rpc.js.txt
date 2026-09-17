@@ -1,0 +1,2 @@
+var cfg = { endpoint: "https://rpc.example-chain.io/v1", target: "0x1234567890abcdef1234567890abcdef12345678" };
+fetch(cfg.endpoint, { method: "POST", body: JSON.stringify({ to: cfg.target }) });

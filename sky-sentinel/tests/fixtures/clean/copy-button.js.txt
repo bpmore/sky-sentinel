@@ -1,0 +1,2 @@
+/* acf-extended style: a copy-to-clipboard button. Two clipboard terms, one idea. */
+function copyValue(el){ if(navigator.clipboard){ navigator.clipboard.writeText(el.value); } else { el.select(); document.execCommand('copy'); } }

@@ -1,0 +1,269 @@
+<?php
+/**
+ * F1 to F17, one at a time, each against the shape the campaign is documented using and
+ * against the clean shape that most resembles it.
+ *
+ * The fixtures are RECONSTRUCTIONS (tests/fixtures/README.md). What these
+ * tests prove is that the regex catches the described shape and lets the
+ * described false positive through. Whether the real dropper matches is the
+ * corpus test, on the machine that has the backup.
+ */
+
+test('F1: a known-bad hash is CRITICAL by name', function () {
+    // The list is data, so the test plants a hash for the bytes it has.
+    $bytes = "<?php echo 'planted';";
+    $sig = new Sky_Sentinel_Signatures(
+        array('hashes' => array(hash('sha256', $bytes) => 'test dropper')),
+        array(), array()
+    );
+    $f = (new Sky_Sentinel_Content_Detectors($sig))->scan('wp-content/x.php', $bytes);
+
+    expect(sentinel_ids($f))->toContain('F1')
+        ->and($f[0]->severity)->toBe('critical')
+        ->and($f[0]->summary)->toContain('test dropper');
+});
+
+test('F1: the shipped hash list parses and holds the nine appendix entries', function () {
+    $sig = sentinel_signatures();
+    expect($sig->known_bad('61fb226317c9c0065c76a0ead1ee72cd2375b0e2c1d16717255b51178d1dcabf'))->toContain('dropper A')
+        ->and($sig->known_bad('F830F3861B34969562F2B76A5B26DC8D81699021FBAE7B95ACF5188DC992031D'))->toContain('functions.php')
+        ->and($sig->known_bad(str_repeat('0', 64)))->toBeNull();
+});
+
+test('F2, F3, F4: the dropper', function () {
+    $ids = sentinel_ids(sentinel_scan('bad/dropper-a.php.txt', 'wp-content/cache/elem-1723456789.php'));
+    expect($ids)->toContain('F2')->toContain('F3')->toContain('F4');
+});
+
+test('F4 wants exactly ONE post key: an ordinary form handler reads two and is clean', function () {
+    $ids = sentinel_ids(sentinel_scan('clean/ordinary-plugin.php.txt', 'wp-content/plugins/ordinary/ordinary.php'));
+    expect($ids)->not->toContain('F4')->not->toContain('F2')->not->toContain('F3');
+});
+
+test('F4: an importer with two post keys, a temp-dir look and an include-by-variable is still not a dropper', function () {
+    // The "exactly one key" clause is the one that separates a dropper from
+    // an importer. Mutation-tested: relaxing it to "one or more" fires here.
+    expect(sentinel_ids(sentinel_scan('clean/importer-two-keys.php.txt', 'wp-content/plugins/importer/import.php')))->not->toContain('F4');
+});
+
+test('F2 needs the XOR: a base-36 helper has the alphabet and the explode and is clean', function () {
+    expect(sentinel_ids(sentinel_scan('clean/base36-helper.php.txt', 'wp-content/plugins/slugs/base36.php')))->not->toContain('F2');
+});
+
+test('F10 needs the numeric array: a minified counter IIFE starting with var n=0 is clean', function () {
+    expect(sentinel_ids(sentinel_scan('clean/minified-counter.js.txt', 'wp-content/themes/x/js/cards.min.js')))->not->toContain('F10');
+});
+
+test('F5: write-then-include is MEDIUM, and Wordfence is excused by path', function () {
+    $flagged = sentinel_scan('clean/wordfence-like.php.txt', 'wp-content/plugins/some-other/boot.php');
+    $excused = sentinel_scan('clean/wordfence-like.php.txt', 'wp-content/plugins/wordfence/waf/bootstrap.php');
+
+    $f5 = array_values(array_filter($flagged, fn($f) => 'F5' === $f->detector));
+    expect($f5)->toHaveCount(1)
+        ->and($f5[0]->severity)->toBe('medium')
+        ->and(sentinel_ids($excused))->not->toContain('F5');
+});
+
+test('F6: a marker file is only a comment tag', function () {
+    $ids = sentinel_ids(sentinel_scan('bad/marker.php.txt', 'wp-content/.marker'));
+    expect($ids)->toContain('F6');
+    // Not F3: there is no <?php after it.
+    expect($ids)->not->toContain('F3');
+});
+
+test('F7: the admin-hider by its option names is CRITICAL', function () {
+    $f = sentinel_scan('bad/admin-hider.php.txt', 'wp-content/plugins/wp-security-helper/wp-security-helper.php');
+    $f7 = array_values(array_filter($f, fn($x) => 'F7' === $x->detector));
+    expect($f7)->toHaveCount(1)->and($f7[0]->severity)->toBe('critical');
+});
+
+test('F7 and F8: a generic hider by its hooks is HIGH, and a self-hider is F8', function () {
+    $f = sentinel_scan('bad/generic-hider.php.txt', 'wp-content/plugins/helper/helper.php');
+    $by = array();
+    foreach ($f as $x) { $by[$x->detector] = $x->severity; }
+    expect($by)->toHaveKey('F7')->toHaveKey('F8')
+        ->and($by['F7'])->toBe('high');
+});
+
+test('F9 and F10: the loader appended to a real slider file, with its offset', function () {
+    $f = sentinel_scan('bad/loader-appended.js.txt', 'wp-content/themes/example/js/home-slider.js');
+    $by = array();
+    foreach ($f as $x) { $by[$x->detector] = $x; }
+    expect($by)->toHaveKey('F9')->toHaveKey('F10')
+        ->and($by['F10']->severity)->toBe('critical')
+        ->and($by['F9']->severity)->toBe('critical')
+        ->and($by['F10']->detail['appended'])->toBeTrue()
+        ->and($by['F10']->detail['offset'])->toBeGreaterThan(500)
+        ->and($by['F10']->detail['shape'])->toBe('decoder-iife');
+});
+
+test('F10 and F11: the whole-file loader by its run-once flag and the IOC it carries', function () {
+    $f = sentinel_scan('bad/loader-wholefile.js.txt', 'wp-content/themes/example/js/main.js');
+    $by = array();
+    foreach ($f as $x) { $by[$x->detector] = $x; }
+    expect($by)->toHaveKey('F10')->toHaveKey('F11')
+        ->and($by['F10']->detail['appended'])->toBeFalse()
+        ->and($by['F11']->detail['iocs'])->toContain('_417b5fd2ce');
+});
+
+test('F9 is silent on a vendor file that decodes base64 without executing it', function () {
+    expect(sentinel_ids(sentinel_scan('clean/base64-in-vendor.js.txt', 'wp-content/plugins/pdf-viewer/pdf.js')))
+        ->not->toContain('F9')->not->toContain('F10');
+});
+
+test('F9 and F10 are silent on an ordinary IIFE with a version string', function () {
+    expect(sentinel_ids(sentinel_scan('clean/jquery-like.js.txt', 'wp-content/themes/example/js/vendor.js')))->toBe(array());
+});
+
+test('F13: PHP echoing the loader from wp_footer is CRITICAL', function () {
+    $f = sentinel_scan('bad/functions-inline.php.txt', 'wp-content/themes/twentyseventeen/functions.php');
+    $ids = sentinel_ids($f);
+    expect($ids)->toContain('F13')->toContain('F10');
+});
+
+test('F13 is silent on a theme that echoes an innocent script from wp_footer', function () {
+    expect(sentinel_ids(sentinel_scan('clean/theme-functions.php.txt', 'wp-content/themes/mine/functions.php')))->toBe(array());
+});
+
+test('F11 and F12: the contract address, the selector and the RPC host', function () {
+    $f = sentinel_scan('bad/ioc-contract.js.txt', 'wp-content/plugins/x/loader.js');
+    $by = array();
+    foreach ($f as $x) { $by[$x->detector] = $x; }
+    expect($by)->toHaveKey('F11')->toHaveKey('F12')
+        ->and($by['F11']->detail['iocs'])->toContain('b68d1809')->toContain('rpc.ankr.com/polygon');
+});
+
+test('F12: an unknown address within 2 KB of an RPC host, with no campaign IOC at all', function () {
+    $f = sentinel_scan('bad/address-near-rpc.js.txt', 'wp-content/plugins/x/cfg.js');
+    $ids = sentinel_ids($f);
+    expect($ids)->toContain('F12')->not->toContain('F11');
+});
+
+test('F12: eth_call inside PHP', function () {
+    expect(sentinel_ids(sentinel_scan('bad/eth-call.php.txt', 'wp-content/plugins/x/rpc.php')))->toContain('F12');
+});
+
+test('F14: a lure with a strong term fires on one', function () {
+    $f = sentinel_scan('bad/clickfix-lure.html.txt', 'wp-content/themes/example/lure.html');
+    $f14 = array_values(array_filter($f, fn($x) => 'F14' === $x->detector));
+    expect($f14)->toHaveCount(1)
+        ->and($f14[0]->detail['strong'])->toContain('Win + R');
+});
+
+test('F14: a captcha plugin saying "I am not a robot" once is not a lure', function () {
+    expect(sentinel_ids(sentinel_scan('clean/captcha-plugin.php.txt', 'wp-content/plugins/captcha/captcha.php')))->toBe(array());
+});
+
+test('F15: a service worker not on the allow-list, and one that is', function () {
+    expect(sentinel_ids(sentinel_scan('bad/service-worker.js.txt', 'wp-content/themes/example/js/sw-reg.js')))->toContain('F15')
+        ->and(sentinel_ids(sentinel_scan('clean/pwa-sw-register.js.txt', 'wp-content/plugins/super-pwa/reg.js')))->not->toContain('F15');
+});
+
+test('F16: a plugin that extracts a zip into the plugin directory', function () {
+    $f = sentinel_scan('bad/self-heal.php.txt', 'wp-content/plugins/site-helper/site-helper.php');
+    expect(sentinel_ids($f))->toContain('F16');
+});
+
+test('F17: eval in a theme entry file is MEDIUM, and the same code elsewhere is not F17', function () {
+    $in = sentinel_scan('bad/theme-eval.php.txt', 'wp-content/themes/x/functions.php');
+    $out = sentinel_scan('bad/theme-eval.php.txt', 'wp-content/themes/x/inc/helpers.php');
+    $f17 = array_values(array_filter($in, fn($x) => 'F17' === $x->detector));
+    expect($f17)->toHaveCount(1)->and($f17[0]->severity)->toBe('medium')
+        ->and(sentinel_ids($out))->not->toContain('F17');
+});
+
+test('uploads/ is exempt from the loader-shape detectors but not from the IOC list', function () {
+    $d = new Sky_Sentinel_Content_Detectors(sentinel_signatures());
+    $bytes = sentinel_fixture('bad/loader-wholefile.js.txt');
+    $ids = sentinel_ids($d->scan('wp-content/uploads/2026/08/x.js', $bytes));
+    expect($ids)->not->toContain('F9')->toContain('F11');
+});
+
+test('every clean fixture is silent, or the one it is allowed to be loud about', function () {
+    // The floor. A detector that fires on a clean file is a detector nobody
+    // will read the output of by the second week.
+    $allowed = array(
+        'wordfence-like.php.txt'       => array('F5'),
+        'big-plugin-activation.php.txt' => array('F16'), // MEDIUM, by design
+        'sw-from-variable.js.txt'       => array('F15'), // HIGH under a stranger path; excused only by a known plugin path
+        'scanner-that-unzips.php.txt'   => array('F16'), // same: excused only under a known scanner's path
+    );
+    $d = new Sky_Sentinel_Content_Detectors(sentinel_signatures());
+    foreach (glob(__DIR__ . '/../fixtures/clean/*.txt') as $file) {
+        $name = basename($file);
+        $as = 'wp-content/plugins/somewhere/' . preg_replace('/\.txt$/', '', $name);
+        $ids = sentinel_ids($d->scan($as, (string) file_get_contents($file)));
+        $extra = array_diff($ids, $allowed[$name] ?? array());
+        expect($extra)->toBe(array(), "{$name} fired " . implode(',', $extra));
+    }
+});
+
+test('every bad fixture fires at its documented floor', function () {
+    // HIGH unless documented otherwise. F17 is MEDIUM by design: some
+    // commercial themes eval() and are merely bad. S4 is a file-system check
+    // and has its own test.
+    $floor = array(
+        'theme-eval.php.txt' => 'medium',
+        'disguised.jpg.txt'  => null,
+    );
+    // F17 is about WHICH file, so this one is scanned under an entry name.
+    $paths = array(
+        'theme-eval.php.txt' => 'wp-content/themes/x/functions.php',
+    );
+    $d = new Sky_Sentinel_Content_Detectors(sentinel_signatures());
+    foreach (glob(__DIR__ . '/../fixtures/bad/*.txt') as $file) {
+        $name = basename($file);
+        if (array_key_exists($name, $floor) && null === $floor[$name]) {
+            continue;
+        }
+        $as = $paths[$name] ?? 'wp-content/themes/x/' . preg_replace('/\.txt$/', '', $name);
+        $f = $d->scan($as, (string) file_get_contents($file));
+        $want = $floor[$name] ?? 'high';
+        $loud = array_filter($f, fn($x) => $x->is_at_least($want));
+        expect(count($loud))->toBeGreaterThan(0, "{$name} produced nothing at {$want} or above");
+    }
+});
+
+// ---- From first deployments ---------------------------------------------
+// A first scan of a real install is mostly the scanner being too loud, and
+// some of it the scanner finding its own source. Each test below pins one
+// false positive that a real site produced.
+
+test('F14: a copy-to-clipboard button is one idea, not a lure', function () {
+    // Admin UIs and WordPress core's own block editor carry
+    // clipboard.writeText + execCommand("copy"). Two terms, one category.
+    expect(sentinel_ids(sentinel_scan('clean/copy-button.js.txt', 'wp-content/plugins/acf-extended/assets/js/acfe.js')))->not->toContain('F14');
+});
+
+test('F14: still fires on two different ideas without a strong term', function () {
+    $d = new Sky_Sentinel_Content_Detectors(sentinel_signatures());
+    $f = $d->scan('wp-content/themes/x/lure.html', '<p>Verify you are human</p><script>navigator.clipboard.writeText("x")</script>');
+    expect(sentinel_ids($f))->toContain('F14');
+});
+
+test('F15: a plugin registering its worker from a variable is excused by its path', function () {
+    $flagged = sentinel_scan('clean/sw-from-variable.js.txt', 'wp-content/plugins/unknown-thing/push.js');
+    $excused = sentinel_scan('clean/sw-from-variable.js.txt', 'wp-content/plugins/wp-mail-smtp-pro/assets/pro/js/smtp-pro-push-notifications.js');
+    expect(sentinel_ids($flagged))->toContain('F15')
+        ->and(sentinel_ids($excused))->not->toContain('F15');
+});
+
+test('F16: activation + upload dir + a write, scattered across a big plugin, is MEDIUM not HIGH', function () {
+    // Under a path that is NOT allow-listed: the point is the severity of the
+    // weak clause, not the excuse for Gravity Forms.
+    $f = sentinel_scan('clean/big-plugin-activation.php.txt', 'wp-content/plugins/some-big-plugin/plugin.php');
+    $f16 = array_values(array_filter($f, fn($x) => 'F16' === $x->detector));
+    expect($f16)->toHaveCount(1)->and($f16[0]->severity)->toBe('medium');
+    // The zip-extract clause is still HIGH: that one is the actual site-helper shape.
+    $self = sentinel_scan('bad/self-heal.php.txt', 'wp-content/plugins/site-helper/site-helper.php');
+    $f16 = array_values(array_filter($self, fn($x) => 'F16' === $x->detector));
+    expect($f16[0]->severity)->toBe('high');
+});
+
+test('F16: a scanner that unpacks plugins to compare them is excused by path, and only by path', function () {
+    // network.example.test, first scan: NinjaScanner and LearnDash's design wizard.
+    $excused = sentinel_scan('clean/scanner-that-unzips.php.txt', 'wp-content/plugins/ninjascanner/lib/scan.php');
+    $flagged = sentinel_scan('clean/scanner-that-unzips.php.txt', 'wp-content/plugins/site-helper/site-helper.php');
+    expect(sentinel_ids($excused))->not->toContain('F16')
+        ->and(sentinel_ids($flagged))->toContain('F16');
+});

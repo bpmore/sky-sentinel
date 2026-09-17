@@ -1,0 +1,4 @@
+<?php
+/* NinjaScanner style: fetches a fresh copy of a plugin and unpacks it to compare. */
+$z = new ZipArchive();
+if ($z->open($tmp_zip) === true) { $z->extractTo(WP_PLUGIN_DIR . '/../ninjascanner-compare/'); $z->close(); }

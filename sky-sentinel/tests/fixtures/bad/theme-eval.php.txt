@@ -1,0 +1,2 @@
+<?php
+add_action('init', function () { eval(base64_decode('ZWNobyAxOw==')); });

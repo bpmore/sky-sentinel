@@ -1,0 +1,20 @@
+{
+    "name": "bpmore/sky-sentinel",
+    "description": "Sky Sentinel: a targeted tripwire for the ClickFix / EtherHiding campaign family, for WordPress.",
+    "type": "wordpress-muplugin",
+    "license": "GPL-2.0-or-later",
+    "require": {
+        "php": ">=8.1"
+    },
+    "require-dev": {
+        "pestphp/pest": "^3.0"
+    },
+    "config": {
+        "allow-plugins": {
+            "pestphp/pest-plugin": true
+        }
+    },
+    "scripts": {
+        "test": "pest"
+    }
+}

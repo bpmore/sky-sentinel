@@ -1,0 +1,4 @@
+<?php
+function mytheme_setup() { add_theme_support('post-thumbnails'); }
+add_action('after_setup_theme', 'mytheme_setup');
+add_action('wp_footer', function () { echo '<script>console.log("hi")</script>'; });

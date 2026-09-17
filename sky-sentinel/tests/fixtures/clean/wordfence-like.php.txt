@@ -1,0 +1,6 @@
+<?php
+// Wordfence WAF bootstrap: writes a config into the temp dir and includes it.
+$tmp = sys_get_temp_dir() . '/wfwaf';
+if (!file_exists($tmp)) { file_put_contents($tmp, '<?php return array();'); }
+$wafConfig = $tmp;
+include $wafConfig;

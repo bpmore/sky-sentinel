@@ -1,0 +1,8 @@
+<?php
+/* An importer: reads TWO post keys, looks at the temp dir, includes a template by variable. Never writes. */
+add_action('admin_post_import', function () {
+    check_admin_referer($_POST['importer_nonce']);
+    $template = plugin_dir_path(__FILE__) . 'templates/' . sanitize_file_name($_POST['importer_template']) . '.php';
+    $free = disk_free_space(sys_get_temp_dir());
+    include $template;
+});

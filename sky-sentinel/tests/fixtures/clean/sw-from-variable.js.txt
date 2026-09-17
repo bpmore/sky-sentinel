@@ -1,0 +1,2 @@
+/* wp-mail-smtp-pro style: registers its worker from a settings object */
+if ('serviceWorker' in navigator) { navigator.serviceWorker.register(settings.serviceWorkerUrl).then(function(reg){ console.log(reg.scope); }); }

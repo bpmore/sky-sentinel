@@ -1,0 +1,8 @@
+<?php
+/* A slug helper that carries the same alphabet the droppers do, and explodes it, and never XORs anything. */
+function to_base36(int $n): string {
+    $digits = explode(',', implode(',', str_split('abcdefghijklmnopqrstuvwxyz0123456789')));
+    $out = '';
+    do { $out = $digits[$n % 36] . $out; $n = intdiv($n, 36); } while ($n > 0);
+    return $out;
+}

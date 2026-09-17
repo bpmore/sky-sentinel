@@ -1,0 +1,2 @@
+<?php
+$payload = json_encode(['jsonrpc' => '2.0', 'method' => 'eth_call', 'params' => []]);
