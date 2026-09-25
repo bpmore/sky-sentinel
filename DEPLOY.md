@@ -19,16 +19,19 @@ heartbeat, all reporting to one channel. FTP is enough.
 2. `php sky-sentinel/bin/make-config.php --label="example.org" --webhook="..." --heartbeat="..." --to="..."`
    writes `dist/example.org/sky-sentinel-config.php`. It never prints the key
    and refuses to overwrite.
-3. Upload by FTP into `wp-content/mu-plugins/`: the unzipped bundle
-   (`sky-sentinel-loader.php`, `sky-sentinel-config.sample.php`,
-   `sky-sentinel/`) plus the site's `sky-sentinel-config.php` beside the
-   loader.
+3. Upload by FTP into `wp-content/mu-plugins/`: the contents of the zip's
+   `mu-plugins/` folder (`sky-sentinel-loader.php` and `sky-sentinel/`), plus
+   the site's `sky-sentinel-config.php` beside the loader. Nothing else: the
+   sample config sits at the top of the zip, outside `mu-plugins/`, because
+   WordPress runs every `.php` there on every request, and a stray sample
+   defines every setting empty if the real config is ever missing.
 4. Load wp-admin. Sentinel in the menu means it booted. Network Admin on a
    network; the ordinary admin menu on a single site. Rollback at any time:
    delete `sky-sentinel-loader.php`.
 5. Sentinel > Alerts and settings > **Send test alert**. Confirm all three
    channels. Set the network list. Tick "Refuse unauthenticated user
-   enumeration".
+   enumeration" (it refuses nothing on a site running Advanced Custom
+   Fields; see the note under the checkbox).
 6. Dashboard > **Scan now**. Read every finding. Real ones follow the
    runbook. Known-benign ones are **acknowledged**, not resolved: resolved
    means gone, and a persistent row marked resolved comes straight back.
@@ -37,8 +40,34 @@ heartbeat, all reporting to one channel. FTP is enough.
 
 ## Updating a live site
 
-Upload the new `sky-sentinel/` directory over the old one. L8 goes CRITICAL
-within a minute: Sentinel's own files changed. Re-sign the baseline.
+An upgrade looks exactly like an attacker editing the tripwire, and Sentinel
+says so. Warn whoever reads the alerts first.
+
+1. Scan on the old version and deal with anything CRITICAL first, so it is
+   not folded into the upgrade.
+2. Upload the new `sky-sentinel-loader.php` and `sky-sentinel/` over the old
+   ones. Leave `sky-sentinel-config.php` alone: a new key invalidates the
+   baseline.
+3. Within a minute: **L8** (CRITICAL) for each Sentinel file that changed,
+   and **L9** (CRITICAL) on the loader. Check every one names a file in the
+   bundle (`unzip -l`). One that does not is not the upgrade: stop.
+4. **Acknowledge** them. Do not resolve them yet: L8 and L9 run every minute,
+   and a resolved finding that is seen again reopens and blocks signing.
+5. Scan now on the new version and read every new finding.
+6. Re-sign the baseline.
+7. Resolve the upgrade's L8 and L9 findings.
+
+### 0.3.0 to 0.4.6
+
+The steps above, plus: delete `sky-sentinel-config.sample.php` from
+`mu-plugins/` if the 0.3.0 zip put it there (L9 reports the removal as HIGH;
+expected, resolve it in step 7). The first scan on 0.4.6 looks at things no
+earlier scan did: L10 can name a host's own mu-plugin or an LDAP / two-factor
+plugin on the `authenticate` hook (read the file; excuse a legitimate one in
+`hook_census_files`), and S9 flags read-only PHP where a host locks files on
+purpose. Re-signing starts L12 (cron schedules). Open L6 findings from before
+the upgrade were mostly internal page-render lookups 0.4.4 stopped counting:
+resolve them.
 
 ## New indicators without an FTP deploy
 

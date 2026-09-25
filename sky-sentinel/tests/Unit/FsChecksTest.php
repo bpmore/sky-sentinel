@@ -131,3 +131,106 @@ test('S6 and S7: the baseline diff', function () {
         'S7:plugins/site-helper' => 'high',
     ));
 });
+
+test('L9: the load path is top-level mu-plugins PHP and the named drop-ins, nothing else', function () {
+    $yes = array('wp-content/mu-plugins/site-health-reporter.php', 'wp-content/advanced-cache.php', 'wp-content/db.php', 'wp-content/object-cache.php', 'wp-content/sunrise.php', 'wp-content/DB.PHP');
+    $no  = array('wp-content/mu-plugins/sky-sentinel/sentinel.php', 'wp-content/mu-plugins/readme.txt', 'wp-content/functions.php', 'wp-content/plugins/db.php', 'wp-content/themes/x/advanced-cache.php', 'db.php');
+    foreach ($yes as $p) { expect(Sky_Sentinel_FS_Checks::is_load_path($p))->toBeTrue(); }
+    foreach ($no as $p) { expect(Sky_Sentinel_FS_Checks::is_load_path($p))->toBeFalse(); }
+    // A relocated content dir is honoured.
+    expect(Sky_Sentinel_FS_Checks::is_load_path('app/mu/x.php', 'app', 'app/mu'))->toBeTrue()
+        ->and(Sky_Sentinel_FS_Checks::is_load_path('app/db.php', 'app', 'app/mu'))->toBeTrue();
+});
+
+test('L9: a new mu-plugin or a changed drop-in is CRITICAL; a removed one is HIGH; unchanged is silent', function () {
+    $was = array(
+        'wp-content/mu-plugins/sky-sentinel-loader.php' => str_repeat('a', 64),
+        'wp-content/object-cache.php'                    => str_repeat('b', 64),
+        'wp-content/mu-plugins/host-helper.php'          => str_repeat('c', 64),
+    );
+    $now = array(
+        'wp-content/mu-plugins/sky-sentinel-loader.php' => str_repeat('a', 64),
+        'wp-content/object-cache.php'                    => str_repeat('d', 64),
+        'wp-content/advanced-cache.php'                  => str_repeat('e', 64),
+    );
+    $f = Sky_Sentinel_FS_Checks::diff_load_path($was, $now);
+    $by = array();
+    foreach ($f as $x) { $by[$x->subject] = $x->detector . ' ' . $x->severity; }
+    ksort($by);
+    expect($by)->toBe(array(
+        'wp-content/advanced-cache.php'         => 'L9 critical',
+        'wp-content/mu-plugins/host-helper.php' => 'L9 high',
+        'wp-content/object-cache.php'           => 'L9 critical',
+    ));
+});
+
+test('S8: a package directory named like a PHP file is CRITICAL, and says so when it holds its twin', function () {
+    $fs = new Sky_Sentinel_FS_Checks(sentinel_signatures());
+    $twin = $fs->check_package_dir('wp-content/plugins/advanced-cache.php', array('advanced-cache.php'));
+    $bare = $fs->check_package_dir('wp-content/plugins/db.php', array('readme.txt'));
+    expect($twin)->toHaveCount(1)->and($twin[0]->detector)->toBe('S8')->and($twin[0]->severity)->toBe('critical')
+        ->and($twin[0]->detail)->toBe(array('twin' => true))
+        ->and($bare[0]->detail)->toBe(array('twin' => false))
+        ->and($fs->check_package_dir('wp-content/plugins/akismet', array('akismet.php')))->toBe(array())
+        ->and($fs->check_package_dir('wp-content/plugins/php-compatibility-checker', array('x.php')))->toBe(array());
+});
+
+function sentinel_s9(string $path, int $mode, int $mtime, int $ctime): array {
+    $f = (new Sky_Sentinel_FS_Checks(sentinel_signatures()))->check_file($path, 9000, '<?php', $mode, $mtime, $ctime);
+    $out = array();
+    foreach ($f as $x) { if ($x->detector === 'S9') { $out[] = $x->severity; } }
+    return $out;
+}
+
+test('S9: load-path PHP locked 0444 is HIGH, and CRITICAL when also backdated', function () {
+    $now = 1790000000;
+    $old = $now - 400 * 86400;
+    expect(sentinel_s9('wp-content/mu-plugins/health.php', 0100444, $now, $now))->toBe(array('high'))
+        ->and(sentinel_s9('wp-content/mu-plugins/health.php', 0100444, $old, $now))->toBe(array('critical'))
+        ->and(sentinel_s9('wp-content/advanced-cache.php', 0100444, $old, $now))->toBe(array('critical'));
+});
+
+test('S9: in a plugin or theme it takes the lock AND the backdate; either alone is a deploy habit', function () {
+    $now = 1790000000;
+    $old = $now - 400 * 86400;
+    expect(sentinel_s9('wp-content/plugins/db.php/db.php', 0100444, $old, $now))->toBe(array('high'))
+        ->and(sentinel_s9('wp-content/plugins/akismet/akismet.php', 0100444, $now, $now))->toBe(array())
+        ->and(sentinel_s9('wp-content/plugins/akismet/akismet.php', 0100644, $old, $now))->toBe(array())
+        ->and(sentinel_s9('wp-content/themes/x/functions.php', 0100444, $old, $now))->toBe(array('high'));
+});
+
+test('S9: a writable load-path file, a read-only wp-config.php, a locked .js, and no stat at all are silent', function () {
+    $now = 1790000000;
+    $old = $now - 400 * 86400;
+    expect(sentinel_s9('wp-content/mu-plugins/health.php', 0100644, $old, $now))->toBe(array())
+        ->and(sentinel_s9('wp-config.php', 0100400, $old, $now))->toBe(array())
+        ->and(sentinel_s9('wp-content/mu-plugins/app.js', 0100444, $old, $now))->toBe(array());
+    $f = (new Sky_Sentinel_FS_Checks(sentinel_signatures()))->check_file('wp-content/mu-plugins/health.php', 9000, '<?php');
+    expect(array_filter($f, fn($x) => $x->detector === 'S9'))->toBe(array());
+});
+
+test('S9: a mode with only the owner write bit set is not locked', function () {
+    expect(sentinel_s9('wp-content/mu-plugins/health.php', 0100644 & ~0022, 1, 1))->toBe(array())
+        ->and(sentinel_s9('wp-content/mu-plugins/health.php', 0100200, 1, 1))->toBe(array());
+});
+
+test('S1 and S2: plant names with more than one word, which a real-install scan found nine decoys hiding behind', function () {
+    $fs = new Sky_Sentinel_FS_Checks(sentinel_signatures());
+    foreach (array('author-template-1788356646', 'widget_area_1788998285', 'custom_file_3_1788356570', 'comment-section-1788998789', 'category_template_1788356405') as $dir) {
+        $f = $fs->check_package_dir("wp-content/themes/{$dir}", array('theme.php', 'style.css', 'index.php'));
+        expect($f)->toHaveCount(1)->and($f[0]->detector)->toBe('S2', $dir)->and($f[0]->severity)->toBe('critical');
+    }
+    foreach (array('custom-file-2-1788379040.php', 'front.page.template.1788356238.php', 'custom_file_3_1788356443.php') as $name) {
+        $ids = array_map(fn($x) => $x->detector, $fs->check_file("wp-content/languages/{$name}", 900, '<?php'));
+        expect($ids)->toContain('S1');
+    }
+});
+
+test('S1: version numbers, dates and hashes are not plant names', function () {
+    $fs = new Sky_Sentinel_FS_Checks(sentinel_signatures());
+    foreach (array('jquery-3.7.1.php', 'report-2026-09-24.php', 'plugin-v2-1788356646x.php', 'cache-abc1788356646.php', 'build-1500000000.php', 'x-17883566460.php') as $name) {
+        $ids = array_map(fn($x) => $x->detector, $fs->check_file("wp-content/plugins/p/{$name}", 900, '<?php'));
+        expect($ids)->not->toContain('S1', $name);
+    }
+    expect($fs->check_package_dir('wp-content/plugins/woocommerce-gateway-stripe', array('woocommerce-gateway-stripe.php')))->toBe(array());
+});

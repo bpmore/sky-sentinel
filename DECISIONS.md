@@ -147,3 +147,90 @@ and replaces the shipped file entirely.
 
 **Why.** A merge lets a stale shipped entry survive an update that meant to
 remove it, and the version on the page then describes neither file.
+
+---
+
+## The hook census judges a callback by where its file lives, not by what its source says
+
+**Decision.** L10 reads `$wp_filter` for the user-hiding hooks
+(`pre_user_query`, `rest_user_query`, `views_users`, `pre_count_users`,
+`show_advanced_plugins`, `all_plugins`) and the password hooks
+(`authenticate` with the password argument, and friends), resolves each
+callback to its file with Reflection, and sets severity by location:
+mu-plugins, drop-ins, uploads or an unplaceable file CRITICAL; a theme HIGH;
+a plugin MEDIUM. One file on two hiding hooks, or on a hiding hook and a
+password hook, is CRITICAL wherever it lives.
+
+**Why.** The mu-plugin family Wordfence documented in September 2026 passes
+every hook name, option key and SQL string through a substitution cipher,
+and changes its filename per install. No text signature survives that. The
+registration in `$wp_filter` cannot be obfuscated, because WordPress has to
+be able to call it.
+
+**Rejected.** *Every non-core callback on these hooks at HIGH.* Role
+editors sit on `pre_user_query`, LDAP and two-factor plugins on
+`authenticate`. Excuse known-good files in `hook_census_files`.
+
+---
+
+## Fixtures written from descriptions cannot find what a real backup finds
+
+**Decision.** The detectors were scored file by file against a real infected
+backup, and three rules changed: plant names of more than one word (S1/S2),
+F10's search window, and F23's case-sensitivity.
+
+**Why.** Each fixture had been written from a description of an artifact.
+The F10 fixture's numeric array had twelve entries because nothing said the
+real one had two thousand; the plant-name examples were all one word.
+Mutation testing proves a clause is guarded by a test; it cannot prove the
+test resembles the thing. Each fix has a regression test at the real
+proportions, generated rather than copied: the fixtures stay
+reconstructions.
+
+---
+
+## L6 counts only real REST requests
+
+**Decision.** L6 records, and the block setting refuses, only when
+`REST_REQUEST` is set: the request came in through `/wp-json/` or
+`?rest_route=`. An anonymous `/wp/v2/users` lookup a plugin dispatches
+internally while building a page is ignored. An author embedded in an
+anonymous `?_embed` REST request still counts.
+
+**Why.** L6 hooks `rest_pre_dispatch`, which also fires for
+`rest_do_request()` during a page render, with the page's visitor as the
+client. On one multisite, Sentinel's own hourly page check produced 94% of
+all L6 hits that way, against the server's own address, which read like a
+neighbour on the same host enumerating users. With the block on, the page's
+own lookup was refused too.
+
+---
+
+## Count every failed login, because L7's silence is ambiguous
+
+**Decision.** Every failed login adds to a per-day tally in one site option:
+total, and a per-address count capped at 300. L13 (MEDIUM) fires from the
+digest on a day of zero after a week that averaged ten or more.
+
+**Why.** L7 speaks only at ten from one address in ten minutes, so no L7
+fits three different nights: nobody tried, something upstream blocks them,
+or Sentinel stopped hearing them. Only a count of every failure separates
+them.
+
+**Rejected.** *An event row per failure* (thousands an hour under a spray).
+*Uncapped address maps* (the same spray grows the option without bound).
+
+---
+
+## Retired sites leave the page check, and only the page check
+
+**Decision.** Archived, deactivated and spam network sites are not fetched
+by the hourly page check; the Dashboard names each one and why. Their files,
+options, content and administrators are still checked.
+
+**Why.** Networks often archive a site as a holding step before deleting it.
+Its visitors see WordPress's suspended notice, and its domain may lapse and
+be re-registered by a stranger, whom Sentinel then fetches every hour while
+waiting out timeouts the live sites needed the time for. A holding site's
+data is exactly what is being kept, one click from being unarchived, so
+every other check keeps covering it.

@@ -19,34 +19,49 @@ installs by FTP and is driven from wp-admin.
 
 **Every six hours**, a chunked file walk that fits inside a one-minute cron:
 
-- Seventeen content detectors (F1 to F17): the known-bad hash list, the
+- Twenty-three content detectors (F1 to F23): the known-bad hash list, the
   dropper family by decoder alphabet and structure, the admin-hider by its
   option names and hooks, the loader by its decode-and-run shape and its
   decoder structure (variable names rotate; the numeric array and XOR do
   not), on-chain resolver calls, inline PHP echoing a loader from `wp_footer`,
   ClickFix lure text, service worker registration, self-healing plugins,
-  obfuscation in theme entry files.
-- Seven file-system checks (S1 to S7): plant naming, decoy packages, PHP under
+  obfuscation in theme entry files; and, for the self-healing mu-plugin
+  family Wordfence documented in September 2026, a file that rewrites,
+  backdates and locks itself, a substitution-cipher string decoder,
+  hex-escaped SQL, a spreader walking server roots, payment-credential
+  harvesting, and raw-SQL self-reactivation.
+- Nine file-system checks (S1 to S9): plant naming, decoy packages, PHP under
   `uploads/` and `cache/`, media files whose bytes are a zip or PHP, dropper
-  dotfiles, and every file and package that differs from a **signed baseline**.
-- Nine database checks (D1 to D9): options and content carrying a loader,
-  pending administrator signups, the administrator set against the baseline,
-  hidden users and hidden plugins (raw SQL against what the WordPress API
-  admits to; the mismatch is the finding), activation changes, and every
-  administrator's live sessions classified by origin.
+  dotfiles, a plugin directory named like a PHP file, read-only and backdated
+  PHP, and every file and package that differs from a **signed baseline**.
+- Ten database checks (D1 to D10): options and content carrying a loader or
+  storing a PHP file, the mu-plugin family's option names, pending
+  administrator signups, the administrator set against the baseline, hidden
+  users (by `count_users()` and by a real `WP_User_Query`) and hidden plugins
+  (raw SQL against what the WordPress API admits to; the mismatch is the
+  finding), activation changes, every administrator's live sessions
+  classified by origin, and administrators named like the family's rogue
+  account.
 
-**Every hour**, the rendered-page check: each site's home and login page
+**Every hour**, the rendered-page check: each live site's home and login page
 fetched as a visitor, fresh and through the cache, plus every same-origin
 script they load, against the loader detectors and against the baseline.
 This is the one check that does not care *where* an injection lives: file,
-database, widget, object cache, page cache, CDN.
+database, widget, object cache, page cache, CDN. Archived, deactivated and
+spam network sites are skipped here (only here), and the Dashboard names them.
 
-**As they happen**, the live hooks (L1 to L8): an administrator logging in
+**As they happen**, the live hooks (L1 to L13): an administrator logging in
 from a known attacker address, a Tor exit, the campaign's tooling browser, or
-a network never seen before; anyone made an administrator by any route; a
-plugin or theme uploaded, activated or switched; the built-in file editor; a
-file-manager connector; unauthenticated user enumeration; a failed-login
-burst; and Sentinel's own files changing.
+a network never seen before; anyone made an administrator by any route, or an
+administrator's password set outside the lost-password flow; a plugin or
+theme uploaded, activated or switched; the built-in file editor; a
+file-manager connector; unauthenticated user enumeration over REST; a
+failed-login burst; Sentinel's own files changing; every minute, a new or
+changed mu-plugin or drop-in; a **hook census** of everything listening on
+the user-hiding and password hooks, resolved by Reflection to the file that
+registered it, however obfuscated its source; an outbound on-chain `eth_call`
+from WordPress itself; new cron schedules; and a daily count of every failed
+login, so a quiet night can be told from a deaf Sentinel.
 
 **Alerts** go by email and by a Teams or Slack webhook that never touches the
 WordPress mail stack, plus a dead-man heartbeat pinged only when a run
@@ -59,8 +74,13 @@ is open.
 The detectors are proven against **reconstructed fixtures** (see
 `sky-sentinel/tests/fixtures/README.md`) and have run on live multisite
 installs, where their first scans were mostly false positives that are now
-pinned as tests. They have not been proven against a real infected backup in
-this repository. `bin/scan.php` is how you do that on your own copy.
+pinned as tests. In 0.4 they were also scored file by file against a real
+infected backup (kept private): every confirmed artifact but one plain-text
+readme was flagged, with no HIGH or CRITICAL false positive, and the cleaned
+copy came back clean. That run found three bugs no reconstructed fixture
+could, now fixed and pinned. `bin/scan.php` is how you do the same on your own
+copy. The detectors for the Wordfence-documented mu-plugin family are built
+from that write-up; no sample of it was available to test against.
 
 Single-site installs are supported in code and tested at the query level.
 Report what you find.
@@ -73,8 +93,10 @@ Twenty minutes. `DEPLOY.md` has the long form.
 2. `php sky-sentinel/bin/make-config.php --label="example.org" --to="you@example.org"`
    writes `dist/example.org/sky-sentinel-config.php` with a fresh signing key
    it never prints. Add `--webhook=` and `--heartbeat=` when you have them.
-3. Unzip the bundle into `wp-content/mu-plugins/`, add the config file beside
-   the loader.
+3. Upload the contents of the zip's `mu-plugins/` folder into
+   `wp-content/mu-plugins/` (the loader and `sky-sentinel/`), and the config
+   file beside the loader. Not the sample config at the top of the zip:
+   WordPress runs every `.php` in `mu-plugins/` on every request.
 4. Load wp-admin. **Sentinel** in the menu means it booted. A white screen
    means delete `sky-sentinel-loader.php` over FTP.
 5. Alerts and settings: send a test alert, set the networks your
@@ -84,13 +106,16 @@ Twenty minutes. `DEPLOY.md` has the long form.
 7. Baseline: sign it, once you believe the install is clean. Signing over a
    live dropper makes it permanent.
 
+Upgrading a live install is not the same as installing: the upload raises L8
+and L9 CRITICAL on purpose. `DEPLOY.md` has the steps.
+
 ## Tests
 
     cd sky-sentinel && composer install && ./vendor/bin/pest
 
-No WordPress needed: every decision is in a class with no WordPress in it.
-Each guarding clause was mutation-tested (put the bug back, watch the test
-fail).
+179 tests, no WordPress needed: every decision is in a class with no
+WordPress in it. Each guarding clause was mutation-tested (put the bug back,
+watch the test fail).
 
 ## Design
 

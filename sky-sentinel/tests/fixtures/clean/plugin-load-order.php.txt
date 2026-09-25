@@ -1,0 +1,33 @@
+<?php
+/**
+ * Plugin Name: Example Load Order
+ */
+// Shapes a real-install scan found F23 firing on when it was case-insensitive:
+// Akismet, Freemius and Gravity Perks all talk about active_plugins in prose
+// and write it through the options API. None of this is raw SQL.
+
+/**
+ * Update the plugin loading order. Anytime the active_plugins option
+ * changes, move this plugin to the front of the list.
+ */
+function example_load_first( $plugins ) {
+	$self = plugin_basename( __FILE__ );
+	if ( $plugins && $plugins[0] !== $self ) {
+		array_unshift( $plugins, $self );
+		update_option( 'active_plugins', array_values( array_unique( $plugins ) ) );
+	}
+	return $plugins;
+}
+
+// Changelog, 2.1: UPDATE: handle active_plugins on multisite. (Capital
+// UPDATE, no SET: only the SET shape stops this one.)
+// Hooks run when we update the set of active_plugins. (update ... set in
+// lower case: only case-sensitivity stops this one.)
+
+// Update SDK info for the newest version: stored under its own key.
+update_option( 'fs_active_plugins', (object) array( 'newest' => '2.6.0' ) );
+
+function example_row( $file ) {
+	$update = in_array( $file, (array) get_option( 'active_plugins', array() ), true );
+	return '<tr class="plugin-update-tr" data-update="' . ( $update ? 1 : 0 ) . '"></tr>';
+}

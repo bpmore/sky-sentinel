@@ -22,6 +22,13 @@ final class Sky_Sentinel_DB_Checks {
 	private Sky_Sentinel_Signatures $sig;
 	/** @var callable(): int  what count_users() reports for the network */
 	private $api_user_count;
+	/**
+	 * @var callable|null  (): int, what a WP_User_Query counts. count_users()
+	 * and get_user_count() are raw SQL and never fire pre_user_query, which
+	 * is the filter the Wordfence-reported mu-plugin uses to hide its admin.
+	 * Only a real user query walks through that filter.
+	 */
+	private $api_query_count;
 	/** @var callable(): string[]  plugin basenames get_plugins() reports */
 	private $api_plugin_list;
 	/** @var callable(): string[]  plugin basenames actually on disk */
@@ -35,8 +42,9 @@ final class Sky_Sentinel_DB_Checks {
 	 */
 	private bool $multisite;
 
-	public function __construct( $db, Sky_Sentinel_Signatures $sig, array $blog_ids, callable $api_user_count, callable $api_plugin_list, callable $disk_plugin_list, bool $multisite = true ) {
+	public function __construct( $db, Sky_Sentinel_Signatures $sig, array $blog_ids, callable $api_user_count, callable $api_plugin_list, callable $disk_plugin_list, bool $multisite = true, ?callable $api_query_count = null ) {
 		$this->db               = $db;
+		$this->api_query_count  = $api_query_count;
 		$this->multisite        = $multisite;
 		$this->sig              = $sig;
 		$this->content          = new Sky_Sentinel_Content_Detectors( $sig );
@@ -67,6 +75,9 @@ final class Sky_Sentinel_DB_Checks {
 			$out[] = $f;
 		}
 		foreach ( $this->d6_hidden_plugins() as $f ) {
+			$out[] = $f;
+		}
+		foreach ( $this->d10_rogue_logins() as $f ) {
 			$out[] = $f;
 		}
 		if ( null !== $baseline_inventory ) {
@@ -101,34 +112,109 @@ final class Sky_Sentinel_DB_Checks {
 		return $inv;
 	}
 
-	// D1: options. The admin-hider's own names, plus any option value that
+	/**
+	 * D1: option names the Wordfence-reported mu-plugin writes. The two sc_
+	 * transients throttle its self-restore and its spreader; the payload
+	 * option caches the command server's last answer.
+	 */
+	public const MU_FAMILY_OPTIONS = array(
+		'sc_payload_persistent',
+		'_transient_sc_recover_check', '_transient_timeout_sc_recover_check',
+		'_transient_sc_spread_interval', '_transient_timeout_sc_spread_interval',
+	);
+
+	/**
+	 * D1: its short names: src (its own source, for self-restore), bu and bp
+	 * (the rogue administrator's login and password), ic (every
+	 * administrator's plaintext password, captured at login). One of these
+	 * alone could be anybody's; two together on one blog are the sample.
+	 */
+	public const MU_FAMILY_SHORT = array( 'src', 'bu', 'bp', 'ic' );
+
+	/** D10: the rogue administrator's login, a fixed prefix and six random characters. */
+	public const ROGUE_ADMIN_LOGIN = '/^(?:admin|adm|administrator|backup)_[A-Za-z0-9]{6}$/';
+
+	// D1: options. The admin-hider's own names, the mu-plugin family's names,
+	// PHP source stored as an option value, plus any option value that
 	// carries a loader, a lure or an IOC. Widgets, custom HTML blocks, theme
 	// mods and code-snippet plugins all store executable content here.
 	private function d1_options(): array {
-		$out = array();
+		$out   = array();
+		$names = "'" . implode( "','", array_merge( array( '_pre_user_id' ), self::MU_FAMILY_OPTIONS, self::MU_FAMILY_SHORT ) ) . "'";
 		foreach ( $this->blog_ids as $blog_id ) {
 			$p    = $this->prefix_for( $blog_id );
-			$rows = (array) $this->db->get_results( "SELECT option_name, option_value FROM {$p}options WHERE option_name IN ('_pre_user_id') OR option_name LIKE 'wsh\\_%' OR LENGTH(option_value) > 40 AND (option_value LIKE '%atob(%' OR option_value LIKE '%new Function(%' OR option_value LIKE '%serviceWorker%' OR option_value LIKE '%<script%' OR option_value LIKE '%eth_call%' OR option_value LIKE '%0x%')" );
+			$rows = (array) $this->db->get_results( "SELECT option_name, option_value FROM {$p}options WHERE option_name IN ({$names}) OR option_name LIKE 'wsh\\_%' OR LENGTH(option_value) > 40 AND (option_value LIKE '<?php%' OR option_value LIKE 's:%:\"<?php%' OR option_value LIKE '%atob(%' OR option_value LIKE '%new Function(%' OR option_value LIKE '%serviceWorker%' OR option_value LIKE '%<script%' OR option_value LIKE '%eth_call%' OR option_value LIKE '%0x%')" );
+			$short = array_values( array_intersect( self::MU_FAMILY_SHORT, array_map( fn( $r ) => (string) $r->option_name, $rows ) ) );
 			foreach ( $rows as $row ) {
-				$name  = (string) $row->option_name;
-				$value = (string) $row->option_value;
+				$name    = (string) $row->option_name;
+				$value   = (string) $row->option_value;
+				$subject = "{$p}options.{$name}";
 				if ( '_pre_user_id' === $name || str_starts_with( $name, 'wsh_' ) ) {
-					$out[] = new Sky_Sentinel_Finding( 'D1', 'critical', "{$p}options.{$name}", 'Admin-hider option present', array(), null, $blog_id );
+					$out[] = new Sky_Sentinel_Finding( 'D1', 'critical', $subject, 'Admin-hider option present', array(), null, $blog_id );
+					continue;
+				}
+				if ( self::stores_php( $value ) ) {
+					// Nothing legitimate keeps a PHP file in wp_options. The
+					// sample keeps its whole source here and writes it back to
+					// disk when the file is deleted: remove this BEFORE the file.
+					$out[] = new Sky_Sentinel_Finding( 'D1', 'critical', $subject, 'Option stores PHP source: a self-restore copy', array( 'bytes' => strlen( $value ) ), hash( 'sha256', $value ), $blog_id );
+					continue;
+				}
+				if ( in_array( $name, self::MU_FAMILY_OPTIONS, true ) ) {
+					$out[] = new Sky_Sentinel_Finding( 'D1', 'critical', $subject, 'Option written by the self-healing mu-plugin family (Wordfence, 2026-09)', array(), null, $blog_id );
+					continue;
+				}
+				if ( in_array( $name, self::MU_FAMILY_SHORT, true ) ) {
+					$pair  = count( $short ) >= 2;
+					$out[] = new Sky_Sentinel_Finding( 'D1', $pair ? 'critical' : 'medium', $subject, $pair ? 'Options ' . implode( ', ', $short ) . ' together: the mu-plugin family\'s source, rogue-admin and captured-password store' : "Option named {$name}, one of the mu-plugin family's names (alone, it may be innocent)", array( 'together' => $short ), null, $blog_id );
 					continue;
 				}
 				foreach ( $this->content->scan( "options/{$name}.html", $value ) as $f ) {
 					if ( in_array( $f->detector, array( 'F9', 'F10', 'F11', 'F12', 'F14', 'F15' ), true ) ) {
-						$out[] = new Sky_Sentinel_Finding( 'D1', $f->severity, "{$p}options.{$name}", "Option value: {$f->summary}", $f->detail, $f->sha256, $blog_id );
+						$out[] = new Sky_Sentinel_Finding( 'D1', $f->severity, $subject, "Option value: {$f->summary}", $f->detail, $f->sha256, $blog_id );
 					}
 				}
 			}
 		}
-		$rows = $this->multisite ? (array) $this->db->get_results( "SELECT meta_key, meta_value FROM {$this->db->base_prefix}sitemeta WHERE LENGTH(meta_value) > 40 AND (meta_value LIKE '%atob(%' OR meta_value LIKE '%new Function(%' OR meta_value LIKE '%<script%')" ) : array();
+		$rows = $this->multisite ? (array) $this->db->get_results( "SELECT meta_key, meta_value FROM {$this->db->base_prefix}sitemeta WHERE LENGTH(meta_value) > 40 AND (meta_value LIKE '<?php%' OR meta_value LIKE 's:%:\"<?php%' OR meta_value LIKE '%atob(%' OR meta_value LIKE '%new Function(%' OR meta_value LIKE '%<script%')" ) : array();
 		foreach ( $rows as $row ) {
+			if ( self::stores_php( (string) $row->meta_value ) ) {
+				$out[] = new Sky_Sentinel_Finding( 'D1', 'critical', "sitemeta.{$row->meta_key}", 'Site meta stores PHP source: a self-restore copy', array( 'bytes' => strlen( (string) $row->meta_value ) ), hash( 'sha256', (string) $row->meta_value ) );
+				continue;
+			}
 			foreach ( $this->content->scan( "sitemeta/{$row->meta_key}.html", (string) $row->meta_value ) as $f ) {
 				if ( in_array( $f->detector, array( 'F9', 'F10', 'F11', 'F14', 'F15' ), true ) ) {
 					$out[] = new Sky_Sentinel_Finding( 'D1', $f->severity, "sitemeta.{$row->meta_key}", "Site meta value: {$f->summary}", $f->detail, $f->sha256 );
 				}
+			}
+		}
+		return $out;
+	}
+
+	/** A value that is a PHP file, raw or as a serialized string. */
+	public static function stores_php( string $value ): bool {
+		return (bool) preg_match( '/\A(?:s:\d+:")?\s*<\?php\b/', $value );
+	}
+
+	// D10: an administrator whose login has the rogue account's shape. No
+	// baseline needed. HIGH, not CRITICAL: backup_ plus six characters is
+	// also what a person might pick. The sample hides the account from the
+	// Users screen and from REST, so this reads the table.
+	private function d10_rogue_logins(): array {
+		$inv = $this->inventory();
+		$out = array();
+		$seen = array();
+		foreach ( $inv['site_admins'] as $login ) {
+			$seen[ $login ] = 0;
+		}
+		foreach ( $inv['blogs'] as $blog_id => $b ) {
+			foreach ( $b['admins'] as $login ) {
+				$seen[ $login ] ??= (int) $blog_id;
+			}
+		}
+		foreach ( $seen as $login => $blog_id ) {
+			if ( preg_match( self::ROGUE_ADMIN_LOGIN, (string) $login ) ) {
+				$out[] = new Sky_Sentinel_Finding( 'D10', 'high', "user:{$login}", "Administrator {$login} has the rogue account's login shape (admin_ / adm_ / administrator_ / backup_ + 6 characters)", array(), null, $blog_id );
 			}
 		}
 		return $out;
@@ -212,14 +298,26 @@ final class Sky_Sentinel_DB_Checks {
 		return $out;
 	}
 
-	// D5: hidden users. The table count against what count_users() admits to.
+	// D5: hidden users. The table count against what WordPress admits to, by
+	// two routes. count_users() catches a hider on pre_count_users (the
+	// family's classic one); a WP_User_Query catches a hider on pre_user_query,
+	// which leaves count_users() alone and fixes the Users-screen totals
+	// through views_users instead (Wordfence, September 2026). One finding
+	// per route that disagrees, so the summary says which filter is lying.
 	private function d5_hidden_users(): array {
 		$raw = (int) $this->db->get_var( "SELECT COUNT(*) FROM {$this->db->base_prefix}users" );
+		$out = array();
 		$api = (int) ( $this->api_user_count )();
 		if ( $raw !== $api ) {
-			return array( new Sky_Sentinel_Finding( 'D5', 'critical', 'users', "Database holds {$raw} users, WordPress reports {$api}: something is filtering the user query", array( 'db' => $raw, 'api' => $api ) ) );
+			$out[] = new Sky_Sentinel_Finding( 'D5', 'critical', 'users', "Database holds {$raw} users, WordPress reports {$api}: something is filtering the user query", array( 'db' => $raw, 'api' => $api ) );
 		}
-		return array();
+		if ( null !== $this->api_query_count ) {
+			$query = (int) ( $this->api_query_count )();
+			if ( $raw !== $query ) {
+				$out[] = new Sky_Sentinel_Finding( 'D5', 'critical', 'users:query', "Database holds {$raw} users, a WP_User_Query returns {$query}: something on pre_user_query is hiding users", array( 'db' => $raw, 'query' => $query ) );
+			}
+		}
+		return $out;
 	}
 
 	// D6: hidden plugins. Directories on disk against get_plugins().

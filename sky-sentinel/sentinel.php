@@ -29,7 +29,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 final class Sky_Sentinel {
 
-	public const VERSION   = '0.3.0';
+	public const VERSION   = '0.4.6';
 	public const SCAN_HOOK   = 'sky_sentinel_scan';
 	public const TICK_HOOK   = 'sky_sentinel_tick';
 	public const PAGES_HOOK  = 'sky_sentinel_pages';
@@ -75,7 +75,7 @@ final class Sky_Sentinel {
 
 	private function __construct() {
 		global $wpdb;
-		foreach ( array( 'finding', 'signatures', 'content-detectors', 'fs-checks', 'baseline', 'scanner', 'db-checks', 'network', 'live-rules', 'session-checks', 'page-check', 'findings', 'alerts', 'runner', 'live-hooks', 'digest' ) as $c ) {
+		foreach ( array( 'finding', 'signatures', 'content-detectors', 'fs-checks', 'baseline', 'scanner', 'db-checks', 'hook-census', 'network', 'live-rules', 'login-tally', 'session-checks', 'page-check', 'findings', 'alerts', 'runner', 'live-hooks', 'digest' ) as $c ) {
 			require_once __DIR__ . "/includes/class-{$c}.php";
 		}
 		$this->sig      = Sky_Sentinel_Signatures::from_directory( __DIR__ . '/signatures', self::signature_overrides() );
@@ -93,9 +93,13 @@ final class Sky_Sentinel {
 		add_action( self::TOR_HOOK, array( $this->runner, 'refresh_tor_list' ) );
 
 		// L1 to L7, always on. The rules are pure and tested; this wires them.
-		new Sky_Sentinel_Live_Hooks( new Sky_Sentinel_Live_Rules( $this->runner->network() ), $this->findings, $this->alerts );
+		new Sky_Sentinel_Live_Hooks( new Sky_Sentinel_Live_Rules( $this->runner->network() ), $this->findings, $this->alerts, $this->sig->rpc_hosts() );
 
 		if ( is_admin() ) {
+			// L10 from the admin side too: a hider has every reason to
+			// register only when is_admin(), where the screens it lies to
+			// are. Last on admin_init, at most every five minutes.
+			add_action( 'admin_init', array( $this, 'admin_census' ), PHP_INT_MAX );
 			require_once __DIR__ . '/admin/class-network-page.php';
 			new Sky_Sentinel_Network_Page( $this->findings, $this->alerts, $this->runner, $this->sig );
 		}
@@ -191,6 +195,14 @@ final class Sky_Sentinel {
 		}
 	}
 
+	public function admin_census(): void {
+		if ( get_site_transient( 'sky_sentinel_admin_census' ) ) {
+			return;
+		}
+		set_site_transient( 'sky_sentinel_admin_census', 1, 5 * MINUTE_IN_SECONDS );
+		$this->runner->hook_census();
+	}
+
 	public function cron_scan(): void {
 		$this->runner->start( 'cron' );
 		$this->runner->step( 40 );
@@ -202,8 +214,11 @@ final class Sky_Sentinel {
 	 * leaves it room to breathe.
 	 */
 	public function cron_tick(): void {
-		// Cheap and first: our own files, against the baseline.
+		// Cheap and first: our own files, the load path, and who is on the
+		// hiding and password hooks.
 		$this->runner->self_check();
+		$this->runner->load_path_check();
+		$this->runner->hook_census();
 		if ( $this->runner->in_progress() ) {
 			$this->runner->step( 40 );
 			return;

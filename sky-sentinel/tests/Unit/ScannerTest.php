@@ -128,3 +128,34 @@ test('Sentinel never content-scans its own source, but still hashes it', functio
         @unlink($manifest);
     }
 });
+
+test('the walk hands S9 real modes and times, and S8 real directory names', function () {
+    // The Wordfence sample's spreader fallback, as it lands on disk:
+    // plugins/<name>/<name>, backdated and locked.
+    $root = sys_get_temp_dir() . '/sentinel-' . bin2hex(random_bytes(4));
+    $manifest = $root . '.manifest';
+    mkdir($root . '/wp-content/mu-plugins', 0777, true);
+    mkdir($root . '/wp-content/plugins/advanced-cache.php', 0777, true);
+    $mu  = $root . '/wp-content/mu-plugins/site-health-reporter.php';
+    $twin = $root . '/wp-content/plugins/advanced-cache.php/advanced-cache.php';
+    file_put_contents($mu, "<?php // inert\n");
+    file_put_contents($twin, "<?php // inert\n");
+    foreach (array($mu, $twin) as $file) {
+        touch($file, time() - 400 * 86400);
+        chmod($file, 0444);
+    }
+    try {
+        $r = (new Sky_Sentinel_Scanner($root, sentinel_signatures()))->scan_all($manifest);
+        $by = array();
+        foreach ($r['findings'] as $f) { $by[$f->detector . ' ' . $f->subject] = $f->severity; }
+        expect($by)->toMatchArray(array(
+            'S9 wp-content/mu-plugins/site-health-reporter.php'              => 'critical',
+            'S9 wp-content/plugins/advanced-cache.php/advanced-cache.php'    => 'high',
+            'S8 wp-content/plugins/advanced-cache.php'                        => 'critical',
+        ));
+    } finally {
+        foreach (array($mu, $twin) as $file) { @chmod($file, 0644); }
+        sentinel_rm($root);
+        @unlink($manifest);
+    }
+});

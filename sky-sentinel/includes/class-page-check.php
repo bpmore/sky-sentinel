@@ -25,6 +25,29 @@ final class Sky_Sentinel_Page_Check {
 	/** @var callable(string $url, array $headers): array{code:int, body:string, headers:array<string,string>}|null */
 	private $fetch;
 
+	/**
+	 * Why a network site is left out of the page check, or null if it is
+	 * checked. Archived, deactivated ("deleted") and spam sites show visitors
+	 * WordPress's suspended notice, not their pages. Networks often archive a
+	 * site as a holding step before deleting it, and a retired site's domain
+	 * may lapse and be re-registered by a stranger: then Sentinel fetches
+	 * someone else's domain every hour, and waits out a ten-second timeout on
+	 * each attempt the live sites needed the time for. Only this
+	 * check skips them: their files, options, content and administrators are
+	 * still scanned, because a holding site's data is exactly what is kept.
+	 *
+	 * @param object $site a WP_Site, or anything with archived / deleted / spam
+	 */
+	public static function skip_reason( object $site ): ?string {
+		foreach ( array( 'archived', 'deleted' => 'deactivated', 'spam' ) as $flag => $word ) {
+			$flag = is_int( $flag ) ? $word : $flag;
+			if ( ! empty( $site->{$flag} ) && '0' !== (string) $site->{$flag} ) {
+				return $word;
+			}
+		}
+		return null;
+	}
+
 	public function __construct( Sky_Sentinel_Signatures $sig, callable $fetch ) {
 		$this->sig     = $sig;
 		$this->content = new Sky_Sentinel_Content_Detectors( $sig );

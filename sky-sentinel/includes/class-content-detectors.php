@@ -243,6 +243,121 @@ final class Sky_Sentinel_Content_Detectors {
 			$f( 'F17', 'medium', "Obfuscation call in a theme entry file: {$m[1]}(", array( 'call' => $m[1] ) );
 		}
 
+		// F18 to F23: the self-healing mu-plugin in Wordfence's September 2026
+		// write-up. Its hook names, option keys and paths are cipher-encoded,
+		// so these match what the cipher leaves in the clear: magic constants,
+		// function names, integer modes, and the cipher itself.
+		if ( in_array( $ext, array( 'php', 'phtml', 'inc' ), true ) ) {
+			foreach ( $this->self_heal_family( $bytes ) as $args ) {
+				$f( ...$args );
+			}
+		}
+
+		return $out;
+	}
+
+	/**
+	 * Hex-escaped text that decodes to one of these is hiding a query or a
+	 * call. SQL keywords are matched in capitals only, as the sample writes
+	 * them: case-insensitive, "Please select an option" is a query.
+	 */
+	private const HIDDEN_WORDS = '/\b(?:UPDATE|SELECT|INSERT|DELETE|DROP|UNION|TRANSACTION)\b|(?i:active_plugins|_options\b|base64_decode|gzinflate|str_rot13|\beval\b|\bassert\b|create_function|shell_exec|passthru|\bsystem\b|proc_open|file_put_contents|add_filter|add_action|get_option|update_option)/';
+
+	/** Web-server roots a spreader walks to find other installs. */
+	private const SERVER_ROOTS = array( '/var/www/vhosts', '/var/www/html', '/var/www', '/srv/www', '/srv/users', '/usr/local/www', '/home' );
+
+	/**
+	 * F18 to F23. Returns argument lists for the scan()'s finding closure.
+	 *
+	 * @return array<int,array{0:string,1:string,2:string,3?:array}>
+	 */
+	private function self_heal_family( string $bytes ): array {
+		$out = array();
+
+		// F18: a file that rewrites itself, then backdates and locks the
+		// result. The sample restores from an option into __FILE__, touch()es
+		// it into the past and chmods it 0444. Writing to __FILE__ alone is
+		// rare but not unheard of in self-updaters, so MEDIUM; with the
+		// backdate or the lock it is the sample's restore routine.
+		$writes_self = preg_match( '/\bfile_put_contents\s*\(\s*__FILE__\b/', $bytes )
+			|| preg_match( '/\b(?:copy|rename)\s*\([^;]{0,200}?,\s*__FILE__\s*\)/', $bytes );
+		$backdates   = (bool) preg_match( '/\btouch\s*\(\s*__FILE__\s*,/', $bytes );
+		$locks       = (bool) preg_match( '/\bchmod\s*\(\s*__FILE__\s*,\s*0?444\s*\)/', $bytes );
+		if ( $writes_self ) {
+			if ( $backdates || $locks ) {
+				$out[] = array( 'F18', 'critical', 'Rewrites its own file, then ' . implode( ' and ', array_filter( array( $backdates ? 'backdates it' : '', $locks ? 'locks it read-only (0444)' : '' ) ) ), array( 'backdates' => $backdates, 'locks' => $locks ) );
+			} else {
+				$out[] = array( 'F18', 'medium', 'Writes to its own file (__FILE__)' );
+			}
+		}
+
+		// F19: the string cipher. A lookup loop (strpos of one character of
+		// a string in an alphabet) beside an alphabet built from twenty or more
+		// short fragments. The fragments exist so no grep finds the alphabet;
+		// that is the tell.
+		if ( preg_match( '/\bstrpos\s*\(\s*\$\w+\s*,\s*\$\w+\s*\[\s*\$\w+\s*\]\s*\)/', $bytes )
+			&& preg_match( '/(?:(?:\'[^\'\n]{1,6}\'|"[^"\n]{1,6}")\s*\.\s*){20,}/', $bytes ) ) {
+			$out[] = array( 'F19', 'high', 'Substitution-cipher string decoder: a per-character alphabet lookup over an alphabet assembled from 20+ fragments' );
+		}
+
+		// F20: hex-escaped words. "\x55P\x44\x41\x54\x45" is UPDATE. Decode
+		// every double-quoted literal carrying two or more \x escapes and see
+		// whether it spells a query or a sensitive call. Binary data decodes
+		// to nothing readable and stays quiet.
+		if ( preg_match_all( '/"((?:[^"\\\\\n]|\\\\.){0,200}?\\\\x[0-9A-Fa-f]{2}(?:[^"\\\\\n]|\\\\.){0,200}?)"/', $bytes, $mm ) ) {
+			$decoded = array();
+			foreach ( $mm[1] as $lit ) {
+				if ( preg_match_all( '/\\\\x[0-9A-Fa-f]{2}/', $lit ) < 2 ) {
+					continue;
+				}
+				$plain = stripcslashes( $lit );
+				if ( preg_match( self::HIDDEN_WORDS, $plain ) ) {
+					$decoded[] = substr( $plain, 0, 60 );
+				}
+			}
+			if ( $decoded ) {
+				$decoded = array_values( array_unique( $decoded ) );
+				$out[] = array( 'F20', 'high', 'Hex-escaped strings that decode to a query or a sensitive call: ' . implode( ', ', array_slice( $decoded, 0, 3 ) ), array( 'decoded' => array_slice( $decoded, 0, 10 ) ) );
+			}
+		}
+
+		// F21: a spreader. Three or more web-server roots in one file that also
+		// names mu-plugins in a string (a comment does not count): it is
+		// looking for other WordPress installs to copy itself into. On shared
+		// hosting, one infection becomes all of them.
+		$roots = array();
+		foreach ( self::SERVER_ROOTS as $r ) {
+			if ( preg_match( '#[\'"]' . preg_quote( $r, '#' ) . '/?[\'"]#', $bytes ) ) {
+				$roots[] = $r;
+			}
+		}
+		if ( count( $roots ) >= 3 && preg_match( '/[\'"][^\'"\n]*mu-plugins/', $bytes ) ) {
+			$out[] = array( 'F21', 'high', 'Walks web-server roots (' . implode( ', ', $roots ) . ') looking for mu-plugins to write into', array( 'roots' => $roots ) );
+		}
+
+		// F22: a payment-credential harvester. Payment names (the gateway
+		// constants or WooCommerce's gateway settings) together with reading
+		// wp-config.php and/or .env / .git/config. A payment plugin names the
+		// gateway and never reads wp-config.php as text; a backup plugin
+		// reads wp-config.php and never cares which gateway you use.
+		$payment = (bool) preg_match( '/\(\?:[A-Z|]*(?:STRIPE|BRAINTREE|AUTHNET)[A-Z|]*\)|woocommerce_(?:stripe|braintree|authorize_net\w*)_settings/', $bytes );
+		$config  = (bool) preg_match( '/[\'"][^\'"]*wp-config\.php[\'"]/', $bytes ) && (bool) preg_match( '/\bfile_get_contents\s*\(|\bfile\s*\(|\bfopen\s*\(/', $bytes );
+		$secrets = (bool) preg_match( '/[\'"][^\'"]*(?:\/\.env|\.git\/config)[\'"]|[\'"]\.env[\'"]/', $bytes );
+		if ( $payment && ( $config || $secrets ) ) {
+			$out[] = array( 'F22', $config && $secrets ? 'critical' : 'high', 'Collects payment credentials: gateway names with ' . implode( ' and ', array_filter( array( $config ? 'wp-config.php read as text' : '', $secrets ? '.env / .git/config' : '' ) ) ), array( 'config' => $config, 'secrets' => $secrets ) );
+		}
+
+		// F23: active_plugins written with raw SQL. WordPress's own path is
+		// update_option(); going around it (with a row lock, in the sample)
+		// is how a plugin reactivates itself without firing activated_plugin.
+		// SQL shape, in capitals: UPDATE <table> SET ... active_plugins, or a
+		// row lock on it. Case-insensitive, a scan of a real compromised install showed it firing on
+		// "Update plugin loading order" comments and update_option(
+		// 'active_plugins' ) in Akismet, Freemius and Gravity Perks.
+		if ( preg_match( '/\bUPDATE\s+\S+\s+SET\b[^;]{0,300}?active_plugins|active_plugins[^;]{0,300}?\bFOR\s+UPDATE\b/s', $bytes ) ) {
+			$out[] = array( 'F23', 'high', 'Writes active_plugins with raw SQL, bypassing activation' );
+		}
+
 		return $out;
 	}
 
@@ -265,10 +380,15 @@ final class Sky_Sentinel_Content_Detectors {
 	public static function loader_structure( string $bytes ): ?array {
 		$offset = null;
 		$shape  = null;
+		// The numeric array starts within the first 1 KB of the IIFE; the XOR
+		// comes after the array, however long it is. The real loader's array
+		// runs ~7.8 KB and its XOR sits ~8.1 KB in: a scan of a real compromised install found a
+		// 4 KB window and a required closing bracket missing both builds.
 		if ( preg_match( '/\(function\s*\(\)\s*\{\s*var\s+[A-Za-z_$][\w$]*\s*=\s*\d+\s*;/', $bytes, $m, PREG_OFFSET_CAPTURE ) ) {
 			$start  = $m[0][1];
-			$window = substr( $bytes, $start, 4096 );
-			if ( preg_match( '/=\s*\[\s*\d+\s*(?:,\s*\d+\s*){7,}\]/', $window ) && preg_match( '/\^/', $window ) ) {
+			$head   = substr( $bytes, $start, 1024 );
+			$window = substr( $bytes, $start, 16384 );
+			if ( preg_match( '/=\s*\[\s*\d+\s*(?:,\s*\d+\s*){7,}/', $head ) && preg_match( '/\^/', $window ) ) {
 				$offset = $start;
 				$shape  = 'decoder-iife';
 			}
@@ -293,7 +413,7 @@ final class Sky_Sentinel_Content_Detectors {
 		if ( ! preg_match_all( '/0x[0-9a-fA-F]{40}\b/', $bytes, $addrs, PREG_OFFSET_CAPTURE ) ) {
 			return null;
 		}
-		if ( ! preg_match_all( '/[a-z0-9.-]*(?:rpc|publicnode|ankr\.com|drpc\.org|blastapi|quiknode|tenderly|nodies|mainnet\.base\.org)[a-z0-9.\/-]*/i', $bytes, $hosts, PREG_OFFSET_CAPTURE ) ) {
+		if ( ! preg_match_all( '/[a-z0-9.-]*(?:rpc|publicnode|ankr\.com|drpc\.org|blastapi|quiknode|tenderly|nodies|mainnet\.base\.org|cloudflare-eth|merkle\.io|infura\.io|alchemy\.com)[a-z0-9.\/-]*/i', $bytes, $hosts, PREG_OFFSET_CAPTURE ) ) {
 			return null;
 		}
 		foreach ( $addrs[0] as $a ) {

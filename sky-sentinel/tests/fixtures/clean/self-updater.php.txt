@@ -1,0 +1,8 @@
+<?php
+// A single-file tool that updates itself in place. Writes __FILE__, does not
+// backdate it or lock it. F18 at MEDIUM is the documented ceiling.
+function example_self_update( $new_source ) {
+	if ( strpos( $new_source, '<?php' ) === 0 ) {
+		file_put_contents( __FILE__, $new_source );
+	}
+}

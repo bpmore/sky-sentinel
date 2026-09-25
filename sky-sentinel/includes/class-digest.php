@@ -16,6 +16,12 @@ final class Sky_Sentinel_Digest {
 
 	public function send(): bool {
 		global $wpdb;
+		// L13 first, so a quiet day is in the list below if it opened now.
+		$tally = (array) get_site_option( Sky_Sentinel_Login_Tally::OPTION, array() );
+		$quiet = Sky_Sentinel_Login_Tally::went_quiet( $tally, time() );
+		if ( null !== $quiet ) {
+			$this->findings->record( array( $quiet ), untrailingslashit( ABSPATH ) );
+		}
 		$since = gmdate( 'Y-m-d H:i:s', time() - DAY_IN_SECONDS );
 		$rows  = (array) $wpdb->get_results( $wpdb->prepare( "SELECT severity, detector, subject, summary, blog_id, first_seen FROM {$wpdb->base_prefix}sentinel_findings WHERE status = 'open' AND first_seen >= %s ORDER BY FIELD(severity,'critical','high','medium','info'), first_seen DESC LIMIT 300", $since ) );
 		$counts = $this->findings->open_counts();
@@ -28,8 +34,14 @@ final class Sky_Sentinel_Digest {
 			is_array( $last ) ? sprintf( 'Last file scan: %s, %d files, %d findings.', $last['at'], $last['files'], $last['findings'] ) : 'Last file scan: none recorded.',
 			is_array( $pages ) ? sprintf( 'Last rendered-page pass: %s, %d pages.', $pages['at'], $pages['pages'] ) : 'Last rendered-page pass: none yet.',
 			'',
-			$rows ? 'Opened in the last 24 hours:' : 'Nothing new opened in the last 24 hours.',
 		);
+		foreach ( Sky_Sentinel_Login_Tally::digest_lines( Sky_Sentinel_Login_Tally::compact( $tally, time() ), time() ) as $l ) {
+			$lines[] = $l;
+		}
+		$lines = array_merge( $lines, array(
+			'',
+			$rows ? 'Opened in the last 24 hours:' : 'Nothing new opened in the last 24 hours.',
+		) );
 		foreach ( $rows as $r ) {
 			$lines[] = sprintf( '%-8s %-4s %s', strtoupper( $r->severity ), $r->detector, $r->subject );
 			$lines[] = '  ' . $r->summary;

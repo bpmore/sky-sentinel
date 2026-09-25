@@ -22,7 +22,8 @@ $heartbeat_locked = Sky_Sentinel_Alerts::locked( 'SKY_SENTINEL_HEARTBEAT' );
 			<p class="description">CIDRs, comma-separated. <strong>Empty means not configured</strong>: only the attacker list, the tooling user-agents and Tor exits are checked. Once it has entries, an administrator login or live session from anywhere else is HIGH (L1, D8). Start with your organisation's range and each administrator's home /24, taken from the first L1 or D8 finding each of them produces. iCloud Private Relay, carrier networks and VPNs come out of shared address space that cannot be pinned to a person; either log in from a listed network or accept a HIGH the first time each new /24 appears. Never allow-list a CDN, a carrier or a whole ISP.</p></td></tr>
 		<tr><th>REST user enumeration</th>
 			<td><label><input type="checkbox" name="block_enum" value="1" <?php checked( get_site_option( 'sky_sentinel_block_user_enum' ) ); ?>> Refuse unauthenticated <code>GET /wp-json/wp/v2/users</code></label>
-			<p class="description">Off: logged as MEDIUM once per IP per day (L6). On: also answered 401. The attacker enumerated users this way before the first login.</p></td></tr>
+			<p class="description">Off: logged as MEDIUM once per IP per day (L6). On: also answered 401. The attacker enumerated users this way before the first login.</p>
+			<p class="description"><strong>On a site running Advanced Custom Fields, ticking this blocks nothing.</strong> ACF 6.4.x registers <code>ACF_Rest_Api::initialize()</code> on <code>rest_pre_dispatch</code> at priority 10 and never returns the filtered value, so it discards the 401 this rule returns from the same priority and the request is served normally. The L6 <em>detection</em> above is unaffected and still fires. To actually refuse the route, use a plugin that runs after ACF and gates the users route&rsquo;s own permission callback.</p></td></tr>
 	</table>
 	<p><button class="button button-primary">Save</button></p>
 </form>

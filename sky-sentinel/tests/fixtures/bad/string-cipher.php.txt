@@ -1,0 +1,17 @@
+<?php
+// Reconstruction of the string decoder in Wordfence's write-up (2026-09).
+function ppv3f3iem95sraou($i){
+	$e = dc9fwkk9hi2kpyfq($i);
+	$f = 'AB'.'SPT'.'H3.1'.'0W'.'MU_L'.'GIN'.'DR/'.'mu'.'-p'.'lgin'.'sc'.'ro'.'fe'
+	.'thay'.'dwj'.'x9'.'475'.'2C86'.'bFE:'.'kz?'.'=vXY'.'ZVQq'.'* O{'.'","['
+	.'}]\\'.'#^@'.'+()\''.'|K'.'<>!;'.'$J&'.'%`';
+	$t = '?,{z'.'SoF'.')D'.'s*&8'.'h"\\'.'5$py'.'TN:'.'!W4'.'g\'ld'.'mi'.'I#w|'
+	.'Xe'.'2qM'.'U;'.'_J'.'b}C'.'17k]'.'9<'.'ucQ'.'Z>0'.'-K'.'@v'.'=a`'.'RB(3'
+	.' .'.'Hx^'.'jY%['.'nrA'.'+GLV'.'6ft'.'PE/O';
+	$r = "";
+	for ($j = 0; $j < strlen($e); $j++) {
+		$p = strpos($t, $e[$j]);
+		$r .= ($p === false) ? $e[$j] : $f[$p];
+	}
+	return $r;
+}

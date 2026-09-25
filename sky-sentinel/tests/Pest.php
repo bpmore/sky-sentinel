@@ -5,7 +5,7 @@
  * this directory ever needs a WordPress function, the class it is testing has
  * grown a dependency it should not have.
  */
-foreach ( array( 'finding', 'signatures', 'content-detectors', 'fs-checks', 'baseline', 'scanner', 'db-checks', 'network', 'live-rules', 'session-checks', 'page-check' ) as $c ) {
+foreach ( array( 'finding', 'signatures', 'content-detectors', 'fs-checks', 'baseline', 'scanner', 'db-checks', 'hook-census', 'network', 'live-rules', 'login-tally', 'session-checks', 'page-check', 'findings' ) as $c ) {
 
 	require_once dirname( __DIR__ ) . "/includes/class-{$c}.php";
 }

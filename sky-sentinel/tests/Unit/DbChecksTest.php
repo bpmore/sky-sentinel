@@ -170,3 +170,101 @@ test('on a network, the same checks do ask sitemeta and signups', function () {
     expect(array_filter($db->queries, fn($q) => str_contains($q, 'sitemeta')))->not->toBe(array())
         ->and(array_filter($db->queries, fn($q) => str_contains($q, 'signups')))->not->toBe(array());
 });
+
+test('D5: a hider on pre_user_query leaves count_users() alone; the WP_User_Query count is what catches it', function () {
+    // The Wordfence-reported mu-plugin appends user_login != '...' on
+    // pre_user_query and fixes the Users-screen totals through views_users.
+    // count_users() is raw SQL and never sees the filter, so it agrees with
+    // the table. Only a real user query disagrees.
+    $db = sentinel_clean_db();
+    $checks = new Sky_Sentinel_DB_Checks($db, sentinel_signatures(), array(1), fn() => 3, fn() => array('akismet/akismet.php'), fn() => array('akismet/akismet.php'), true, fn() => 2);
+    $f = $checks->run(null);
+    expect($f)->toHaveCount(1)
+        ->and($f[0]->detector)->toBe('D5')
+        ->and($f[0]->subject)->toBe('users:query')
+        ->and($f[0]->severity)->toBe('critical')
+        ->and($f[0]->summary)->toContain('pre_user_query')
+        ->and($f[0]->detail)->toBe(array('db' => 3, 'query' => 2));
+});
+
+test('D5: when both routes agree with the table, nothing; when both disagree, two findings that name the route', function () {
+    $db = sentinel_clean_db();
+    $ok = new Sky_Sentinel_DB_Checks($db, sentinel_signatures(), array(1), fn() => 3, fn() => array(), fn() => array(), true, fn() => 3);
+    expect($ok->run(null))->toBe(array());
+    $both = new Sky_Sentinel_DB_Checks($db, sentinel_signatures(), array(1), fn() => 2, fn() => array(), fn() => array(), true, fn() => 2);
+    expect(array_map(fn($x) => $x->subject, $both->run(null)))->toBe(array('users', 'users:query'));
+});
+
+// ---- The self-healing mu-plugin family (Wordfence, 2026-09) ---------------
+
+function sentinel_d1(array $rows): array {
+    $db = sentinel_clean_db();
+    $db->answers = array('/FROM wp_options WHERE option_name IN/' => $rows) + $db->answers;
+    $by = array();
+    foreach (sentinel_db_checks($db)->run(null) as $x) {
+        if ($x->detector === 'D1') { $by[$x->subject] = $x->severity; }
+    }
+    ksort($by);
+    return $by;
+}
+
+test('D1: the query asks for the family\'s names and for option values that are PHP', function () {
+    $db = sentinel_clean_db();
+    sentinel_db_checks($db)->run(null);
+    $sql = implode("\n", array_filter($db->queries, fn($q) => str_contains($q, 'FROM wp_options WHERE option_name IN')));
+    expect($sql)->toContain("'src'")->toContain("'ic'")->toContain("'sc_payload_persistent'")
+        ->toContain("'_transient_sc_recover_check'")->toContain("LIKE '<?php%'");
+});
+
+test('D1: an option that stores a PHP file is CRITICAL whatever it is called, raw or serialized', function () {
+    $src = "<?php\n/* Plugin Name: Site Health Reporter */\n" . str_repeat('// x', 20);
+    expect(sentinel_d1(array(
+        array('option_name' => 'src', 'option_value' => $src),
+        array('option_name' => 'health_cache', 'option_value' => 's:' . strlen($src) . ':"' . $src . '";'),
+        array('option_name' => 'widget_text', 'option_value' => 'a:1:{s:4:"text";s:40:"Use <?php echo 1; ?> in the template...";}'),
+    )))->toBe(array('wp_options.health_cache' => 'critical', 'wp_options.src' => 'critical'));
+});
+
+test('D1: the sc_ throttles and the payload cache are CRITICAL by name', function () {
+    expect(sentinel_d1(array(
+        array('option_name' => '_transient_sc_recover_check', 'option_value' => '1'),
+        array('option_name' => '_transient_timeout_sc_spread_interval', 'option_value' => '1790000000'),
+        array('option_name' => 'sc_payload_persistent', 'option_value' => 'a:0:{}'),
+    )))->toBe(array(
+        'wp_options._transient_sc_recover_check'           => 'critical',
+        'wp_options._transient_timeout_sc_spread_interval' => 'critical',
+        'wp_options.sc_payload_persistent'                 => 'critical',
+    ));
+});
+
+test('D1: one short name alone is MEDIUM; two together are the sample and CRITICAL', function () {
+    expect(sentinel_d1(array(array('option_name' => 'ic', 'option_value' => 'a:0:{}'))))->toBe(array('wp_options.ic' => 'medium'));
+    expect(sentinel_d1(array(
+        array('option_name' => 'bu', 'option_value' => 'backup_k3x9qz'),
+        array('option_name' => 'bp', 'option_value' => 'hunter2hunter2'),
+    )))->toBe(array('wp_options.bp' => 'critical', 'wp_options.bu' => 'critical'));
+});
+
+test('D1: site meta that stores PHP is CRITICAL too', function () {
+    $db = sentinel_clean_db();
+    $db->answers = array('/FROM wp_sitemeta WHERE LENGTH/' => array(array('meta_key' => 'net_cache', 'meta_value' => "<?php\n" . str_repeat('// x', 20)))) + $db->answers;
+    $f = array_values(array_filter(sentinel_db_checks($db)->run(null), fn($x) => $x->subject === 'sitemeta.net_cache'));
+    expect($f)->toHaveCount(1)->and($f[0]->severity)->toBe('critical');
+});
+
+test('D10: an administrator named like the rogue account is HIGH, with no baseline; ordinary logins are not', function () {
+    $db = sentinel_clean_db();
+    $db->answers['/LIKE \'%administrator%\'/'] = array('alice', 'bob', 'backup_k3x9qz', 'admin_7Qp2Lm', 'admin_team', 'administrator', 'adm_12345');
+    $f = array_values(array_filter(sentinel_db_checks($db)->run(null), fn($x) => $x->detector === 'D10'));
+    $subjects = array_map(fn($x) => $x->subject . ' ' . $x->severity, $f);
+    sort($subjects);
+    expect($subjects)->toBe(array('user:admin_7Qp2Lm high', 'user:backup_k3x9qz high'));
+});
+
+test('stores_php() wants PHP at the very start, not a mention of it', function () {
+    expect(Sky_Sentinel_DB_Checks::stores_php('<?php echo 1;'))->toBeTrue()
+        ->and(Sky_Sentinel_DB_Checks::stores_php("  \n<?php echo 1;"))->toBeTrue()
+        ->and(Sky_Sentinel_DB_Checks::stores_php('s:13:"<?php echo 1;";'))->toBeTrue()
+        ->and(Sky_Sentinel_DB_Checks::stores_php('Put <?php at the top'))->toBeFalse()
+        ->and(Sky_Sentinel_DB_Checks::stores_php('<?phpx'))->toBeFalse();
+});

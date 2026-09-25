@@ -109,6 +109,25 @@ final class Sky_Sentinel_Live_Rules {
 		return new Sky_Sentinel_Finding( 'L5', 'critical', "ajax:{$action}", "A file-manager connector was called ({$action}) by {$by} from {$ip}", array( 'by' => $by, 'ip' => $ip ) );
 	}
 
+	/**
+	 * L6: is this user lookup enumeration by the client? Only when the request
+	 * itself is a REST request ($rest_request: WordPress's REST_REQUEST, set
+	 * only for /wp-json/ and ?rest_route=), from nobody logged in, reading
+	 * /wp/v2/users.
+	 *
+	 * A plugin or block that looks users up with rest_do_request() while
+	 * building an ordinary page fires the same filter, and before 0.4.4 L6
+	 * counted it against whoever loaded the page. On one multisite that was
+	 * Sentinel's own hourly page check: ~1,000 a day against the server's own
+	 * address, 94% of every L6 hit, which read like a neighbour on the same
+	 * host enumerating users. An embedded author on an anonymous
+	 * /wp-json/wp/v2/posts?_embed still counts: that IS a REST request reading
+	 * user data, and ?_embed is a known way to harvest author names.
+	 */
+	public static function is_enumeration( bool $logged_in, string $method, string $route, bool $rest_request ): bool {
+		return $rest_request && ! $logged_in && 'GET' === strtoupper( $method ) && (bool) preg_match( '#^/wp/v2/users(?:/|$)#', $route );
+	}
+
 	/** L6: unauthenticated user enumeration over REST. One finding per IP per day, by subject. */
 	public function user_enumeration( string $ip, string $day ): Sky_Sentinel_Finding {
 		return new Sky_Sentinel_Finding( 'L6', 'medium', "enum:{$ip}:{$day}", "Unauthenticated GET /wp-json/wp/v2/users from {$ip}", array( 'ip' => $ip ) );
@@ -127,6 +146,90 @@ final class Sky_Sentinel_Live_Rules {
 
 	public function burst( string $ip, int $count, string $day ): Sky_Sentinel_Finding {
 		return new Sky_Sentinel_Finding( 'L7', 'high', "burst:{$ip}:{$day}", "{$count} failed logins from {$ip} inside ten minutes", array( 'ip' => $ip, 'count' => $count ) );
+	}
+
+	/**
+	 * L2: an administrator's password was set outside the lost-password flow.
+	 * The Wordfence-reported mu-plugin takes over an existing administrator
+	 * with wp_set_password() instead of creating one, so the user count never
+	 * moves and no role hook fires. From cron or an anonymous request it is
+	 * CRITICAL: no human changed that password.
+	 *
+	 * @param bool $reset_flow The request is wp-login.php?action=rp|resetpass, where the owner resets their own.
+	 */
+	public function password_set( string $login, bool $privileged, string $by, bool $reset_flow, string $when, int $blog_id = 0 ): ?Sky_Sentinel_Finding {
+		if ( ! $privileged || $reset_flow ) {
+			return null;
+		}
+		$sev = in_array( $by, array( 'anonymous', 'wp-cron' ), true ) ? 'critical' : 'high';
+		return new Sky_Sentinel_Finding( 'L2', $sev, "password:{$login}:{$when}", "Administrator {$login}'s password was set by {$by}, outside the lost-password flow", array( 'by' => $by ), null, $blog_id );
+	}
+
+	/**
+	 * L11: WordPress was asked to make an outbound request that is an
+	 * on-chain lookup. The mu-plugin in the Wordfence write-up finds its
+	 * command servers by eth_call to a smart contract through public RPC
+	 * gateways, and tries wp_remote_post before cURL, so the request passes
+	 * through pre_http_request where this can see it. The source can be as
+	 * obfuscated as it likes; the request body cannot be.
+	 *
+	 * Matched on JSON-RPC STRUCTURE ("method":"eth_..."), not the bare word,
+	 * because Sentinel's own webhook can carry the word eth_call in a
+	 * finding's summary.
+	 *
+	 * @param string   $body      The request body, JSON-encoded if it was an array.
+	 * @param string[] $rpc_hosts The campaign's gateway list (iocs.json).
+	 * @param string   $caller    The file that called the HTTP API, relative, or ''.
+	 */
+	public function outbound_request( string $url, string $body, array $rpc_hosts, string $caller ): ?Sky_Sentinel_Finding {
+		$host   = strtolower( (string) parse_url( $url, PHP_URL_HOST ) );
+		$method = preg_match( '/"method"\s*:\s*"(eth_[A-Za-z]+)"/', $body, $m ) ? $m[1] : null;
+		$known  = false;
+		$hostpath = $host . (string) parse_url( $url, PHP_URL_PATH );
+		foreach ( $rpc_hosts as $h ) {
+			if ( '' !== $h && str_starts_with( $hostpath, strtolower( (string) $h ) ) ) {
+				$known = true;
+			}
+		}
+		if ( null === $method && ! $known ) {
+			return null;
+		}
+		$detail = array( 'url' => $url, 'caller' => $caller );
+		if ( null !== $method ) {
+			$detail['method'] = $method;
+			if ( preg_match( '/"data"\s*:\s*"(0x[0-9a-fA-F]{8})/', $body, $s ) ) {
+				$detail['selector'] = $s[1];
+			}
+			if ( preg_match( '/"to"\s*:\s*"(0x[0-9a-fA-F]{40})"/', $body, $t ) ) {
+				$detail['contract'] = $t[1];
+			}
+		}
+		$what = null !== $method ? "an on-chain {$method} call" : 'a request to a campaign RPC gateway';
+		$from = '' !== $caller ? " from {$caller}" : '';
+		return new Sky_Sentinel_Finding( 'L11', 'critical', "outbound:{$host}:" . ( $caller ?: '?' ), "WordPress made {$what} to {$host}{$from}: an EtherHiding command-server lookup", $detail );
+	}
+
+	/**
+	 * L11: which file asked for the request. The first frame outside
+	 * wp-includes/ is the caller: WP_Http and wp_remote_post live there.
+	 *
+	 * @param array  $trace debug_backtrace() frames
+	 * @param string $root  absolute path to make the file relative to
+	 */
+	public static function caller_from_trace( array $trace, string $root ): string {
+		$root = rtrim( str_replace( '\\', '/', $root ), '/' ) . '/';
+		foreach ( $trace as $frame ) {
+			$file = str_replace( '\\', '/', (string) ( $frame['file'] ?? '' ) );
+			if ( '' === $file ) {
+				continue;
+			}
+			$rel = str_starts_with( $file, $root ) ? substr( $file, strlen( $root ) ) : $file;
+			if ( str_starts_with( $rel, 'wp-includes/' ) || str_contains( $rel, '/sky-sentinel/includes/class-live-hooks.php' ) ) {
+				continue;
+			}
+			return $rel;
+		}
+		return '';
 	}
 
 	/** Roles that count as privileged on a network like this one. */

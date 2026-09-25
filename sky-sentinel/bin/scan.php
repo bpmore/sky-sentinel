@@ -15,6 +15,11 @@
  * Content detectors, file-system checks and the package inventory run here.
  * Database checks (D1 to D7) and the baseline diff need WordPress and do not.
  */
+// Ships inside mu-plugins, so it is reachable by URL. It is a command-line tool only.
+if ( 'cli' !== PHP_SAPI ) {
+	http_response_code( 404 );
+	exit;
+}
 $root = $argv[1] ?? '';
 $json = in_array( '--json', $argv, true );
 $min  = 'info';

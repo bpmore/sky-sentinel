@@ -14,14 +14,22 @@
  */
 final class Sky_Sentinel_FS_Checks {
 
-	/** S1: a word, a separator, a 10-digit epoch from 2020 onward, optional .php. */
-	public const NAMED_LIKE_A_PLANT = '/(?:^|\/)([A-Za-z]+[-_.]1[6-9]\d{8})(?:\.php)?\/?$/';
+	/**
+	 * S1: one or more words, a separator, a 10-digit epoch from 2020 onward,
+	 * optional .php. More than one word: a scan of a real compromised install found nine decoy
+	 * themes (author-template-, widget_area_, custom_file_3_, ...) that a
+	 * single-word pattern walked straight past.
+	 */
+	public const NAMED_LIKE_A_PLANT = '/(?:^|\/)([A-Za-z][A-Za-z0-9]*(?:[-_.][A-Za-z0-9]+)*?[-_.]1[6-9]\d{8})(?:\.php)?\/?$/';
 
 	/** S3: directories where PHP has no business being. */
 	public const NO_PHP_HERE = array( 'uploads/', 'blogs.dir/', 'languages/', 'cache/', 'upgrade/', 'upgrade-temp-backup/' );
 
 	/** S4: extensions that promise an image or a document. */
 	public const MEDIA_EXTENSIONS = array( 'jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'mp3', 'mp4', 'mov', 'zip' );
+
+	/** S9: how far before its inode change a file's mtime must be to count as backdated. */
+	public const BACKDATE_SECONDS = 30 * 86400;
 
 	/** S5: what the droppers leave in a temp dir once they have fired. */
 	public const DROPPER_DOTFILES = array( '.holder', '.mrk', '.property_set' );
@@ -38,9 +46,12 @@ final class Sky_Sentinel_FS_Checks {
 	 * @param string      $rel_path Relative to wp-content, forward slashes.
 	 * @param int         $size     Bytes.
 	 * @param string|null $head     First bytes (16 is enough; more lets S4 read an error page's title), or null if the walker did not read them.
+	 * @param int|null    $mode     fileperms(), for S9. Null when the walker did not stat.
+	 * @param int|null    $mtime    filemtime(), for S9.
+	 * @param int|null    $ctime    filectime(), for S9.
 	 * @return Sky_Sentinel_Finding[]
 	 */
-	public function check_file( string $rel_path, int $size, ?string $head ): array {
+	public function check_file( string $rel_path, int $size, ?string $head, ?int $mode = null, ?int $mtime = null, ?int $ctime = null ): array {
 		$rel_path = ltrim( str_replace( '\\', '/', $rel_path ), '/' );
 		$out      = array();
 		$base     = basename( $rel_path );
@@ -99,6 +110,27 @@ final class Sky_Sentinel_FS_Checks {
 			$f( 'F16', 'high', "Self-heal artifact inside a plugin: {$base}" );
 		}
 
+		// S9: PHP locked read-only for everyone, and PHP whose modification
+		// time is far older than its inode change time. The Wordfence-reported
+		// mu-plugin does both to every copy it writes: chmod 0444 so a cleanup
+		// script's overwrite fails, touch() into the past so a "sort by date"
+		// never shows it. Deploys preserve mtimes too (rsync, some FTP
+		// clients), so a backdate alone is not a finding; only a lock is, and
+		// only on the load path, where there is no reason for it. In a plugin
+		// or theme it takes both.
+		if ( null !== $mode && 'php' === $ext ) {
+			$locked    = 0 === ( $mode & 0222 );
+			$backdated = null !== $mtime && null !== $ctime && $ctime - $mtime > self::BACKDATE_SECONDS;
+			$load      = self::is_load_path( 'wp-content/' . $wc );
+			$package   = str_starts_with( $wc, 'plugins/' ) || str_starts_with( $wc, 'themes/' ) || str_starts_with( $wc, 'mu-plugins/' );
+			$detail    = array( 'mode' => sprintf( '%04o', $mode & 0777 ) ) + ( $backdated ? array( 'mtime' => gmdate( 'Y-m-d H:i:s', $mtime ) . ' UTC', 'ctime' => gmdate( 'Y-m-d H:i:s', $ctime ) . ' UTC' ) : array() );
+			if ( $locked && $load ) {
+				$f( 'S9', $backdated ? 'critical' : 'high', $backdated ? 'Load-path PHP locked read-only (0444) and backdated: mtime is long before ctime' : 'Load-path PHP locked read-only for everyone', $detail );
+			} elseif ( $locked && $backdated && $package ) {
+				$f( 'S9', 'high', 'PHP locked read-only (0444) and backdated: mtime is long before ctime', $detail );
+			}
+		}
+
 		// F15 second clause lives here because it is a location, not a content,
 		// question. One file is ours: the remediation worker placed during the
 		// cleanup, named in the allow-list so it is known rather than tolerated.
@@ -120,6 +152,14 @@ final class Sky_Sentinel_FS_Checks {
 	public function check_package_dir( string $rel_dir, array $entries ): array {
 		$rel_dir = trim( str_replace( '\\', '/', $rel_dir ), '/' );
 		$out     = array();
+		// S8: a package DIRECTORY named like a PHP file. When the Wordfence-
+		// reported mu-plugin cannot write into mu-plugins it falls back to
+		// plugins/<its name>/<its name>, and its name is advanced-cache.php
+		// or db.php. No real plugin directory ends in .php.
+		if ( preg_match( '/\.(?:php\d?|phtml|phar)$/i', basename( $rel_dir ) ) ) {
+			$twin = in_array( strtolower( basename( $rel_dir ) ), array_map( 'strtolower', $entries ), true );
+			$out[] = new Sky_Sentinel_Finding( 'S8', 'critical', $rel_dir, $twin ? 'Package directory named like a PHP file, holding a file of the same name: the mu-plugin spreader\'s fallback' : 'Package directory named like a PHP file', array( 'twin' => $twin ) );
+		}
 		if ( ! preg_match( self::NAMED_LIKE_A_PLANT, $rel_dir, $m ) ) {
 			return $out;
 		}
@@ -159,6 +199,65 @@ final class Sky_Sentinel_FS_Checks {
 		}
 		foreach ( array_diff( $current_packages, $baseline_packages ) as $pkg ) {
 			$out[] = new Sky_Sentinel_Finding( 'S7', 'high', $pkg, 'Plugin or theme directory not in the baseline inventory' );
+		}
+		return $out;
+	}
+
+	/**
+	 * The drop-ins WordPress loads from wp-content by name, whatever is in
+	 * them (_get_dropins()). The Wordfence-reported mu-plugin family shipped
+	 * most often AS advanced-cache.php or db.php, because those names look
+	 * like they belong.
+	 */
+	public const DROPINS = array(
+		'advanced-cache.php', 'db.php', 'db-error.php', 'install.php', 'maintenance.php',
+		'object-cache.php', 'php-error.php', 'fatal-error-handler.php', 'sunrise.php',
+		'blog-deleted.php', 'blog-inactive.php', 'blog-suspended.php',
+	);
+
+	/**
+	 * Is this file on WordPress's automatic load path: a top-level .php in
+	 * mu-plugins, or a drop-in at the top of wp-content? Those files run on
+	 * every request without anyone activating them, so they get the strictest
+	 * treatment Sentinel has (L9).
+	 *
+	 * @param string $rel_path    Relative to the scan root, forward slashes.
+	 * @param string $content_rel wp-content relative to the scan root.
+	 * @param string $mu_rel      mu-plugins relative to the scan root.
+	 */
+	public static function is_load_path( string $rel_path, string $content_rel = 'wp-content', string $mu_rel = 'wp-content/mu-plugins' ): bool {
+		$rel_path = ltrim( str_replace( '\\', '/', $rel_path ), '/' );
+		$dir      = dirname( $rel_path );
+		$base     = basename( $rel_path );
+		if ( trim( $mu_rel, '/' ) === $dir ) {
+			return 'php' === strtolower( pathinfo( $base, PATHINFO_EXTENSION ) );
+		}
+		return trim( $content_rel, '/' ) === $dir && in_array( strtolower( $base ), self::DROPINS, true );
+	}
+
+	/**
+	 * L9: the load path against the signed baseline. Checked every minute, not
+	 * every six hours, because a file here is live on the next request. A new
+	 * or changed file is CRITICAL: nothing lands in mu-plugins or becomes a
+	 * drop-in without a deploy, and a deploy is followed by re-signing. The
+	 * mu-plugin in the Wordfence write-up hid itself from the Must-Use screen,
+	 * so "look at the list in wp-admin" is not a check.
+	 *
+	 * @param array<string,string> $baseline rel_path => sha256, load-path files only
+	 * @param array<string,string> $current  rel_path => sha256, load-path files only
+	 * @return Sky_Sentinel_Finding[]
+	 */
+	public static function diff_load_path( array $baseline, array $current ): array {
+		$out = array();
+		foreach ( $current as $path => $sha ) {
+			if ( ! isset( $baseline[ $path ] ) ) {
+				$out[] = new Sky_Sentinel_Finding( 'L9', 'critical', $path, 'New file on the load path (mu-plugins or a drop-in) since the baseline: it runs on every request', array(), $sha );
+			} elseif ( $baseline[ $path ] !== $sha ) {
+				$out[] = new Sky_Sentinel_Finding( 'L9', 'critical', $path, 'Load-path file (mu-plugins or a drop-in) changed since the baseline', array( 'was' => $baseline[ $path ] ), $sha );
+			}
+		}
+		foreach ( array_diff_key( $baseline, $current ) as $path => $sha ) {
+			$out[] = new Sky_Sentinel_Finding( 'L9', 'high', $path, 'Load-path file (mu-plugins or a drop-in) removed since the baseline', array( 'was' => $sha ) );
 		}
 		return $out;
 	}

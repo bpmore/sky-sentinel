@@ -4,7 +4,7 @@ $b = $data['baseline']; $c = $data['counts'];
 ?>
 <h2>What the baseline is</h2>
 <p>A signed record of every file's hash outside <code>uploads/</code>, the plugin and theme directories, the administrators, and what is active. Once signed, every run reports what is new, changed, or gone (S6, S7), and any administrator or activation that was not there when you signed (D4, D7).</p>
-<p>The signature uses <code>SKY_SENTINEL_KEY</code> from <code>wp-config.php</code>, so the database alone cannot re-sign it. <?php echo null === Sky_Sentinel_Runner::key() ? '<strong style="color:#b00020">That constant is not set, or is shorter than 32 characters. Signing is disabled.</strong>' : 'The key is set.'; ?></p>
+<p>The signature uses <code>SKY_SENTINEL_KEY</code> from this site's <code>sky-sentinel-config.php</code> (or <code>wp-config.php</code>, which wins where it is set), so the database alone cannot re-sign it. <?php echo null === Sky_Sentinel_Runner::key() ? '<strong style="color:#b00020">That constant is not set, or is shorter than 32 characters. Signing is disabled.</strong>' : 'The key is set.'; ?></p>
 
 <h2>Current baseline</h2>
 <p>

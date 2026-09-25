@@ -81,3 +81,94 @@ test('privileged means administrator anywhere or super admin', function () {
         ->and(Sky_Sentinel_Live_Rules::is_privileged(array('administrator'), false))->toBeTrue()
         ->and(Sky_Sentinel_Live_Rules::is_privileged(array(), true))->toBeTrue();
 });
+
+// ---- The self-healing mu-plugin family (Wordfence, 2026-09) ---------------
+
+test('L2: an administrator\'s password set from cron or an anonymous request is CRITICAL', function () {
+    $r = sentinel_rules();
+    $cron = $r->password_set('alice', true, 'wp-cron', false, '2026-09-24T03:12');
+    expect($cron->detector)->toBe('L2')->and($cron->severity)->toBe('critical')->and($cron->subject)->toBe('password:alice:2026-09-24T03:12')
+        ->and($r->password_set('alice', true, 'anonymous', false, 'x')->severity)->toBe('critical');
+});
+
+test('L2: set by another logged-in user or WP-CLI is HIGH; the lost-password flow and non-administrators are silent', function () {
+    $r = sentinel_rules();
+    expect($r->password_set('alice', true, 'bob', false, 'x')->severity)->toBe('high')
+        ->and($r->password_set('alice', true, 'wp-cli', false, 'x')->severity)->toBe('high')
+        ->and($r->password_set('alice', true, 'anonymous', true, 'x'))->toBeNull()
+        ->and($r->password_set('reader', false, 'wp-cron', false, 'x'))->toBeNull();
+});
+
+test('L11: a JSON-RPC eth_call leaving WordPress is CRITICAL, with the contract, selector and caller', function () {
+    $body = '{"jsonrpc":"2.0","id":3,"method":"eth_call","params":[{"data":"0x3bc5de30","to":"0x' . str_repeat('ab', 20) . '"},"latest"]}';
+    $f = sentinel_rules()->outbound_request('https://eth.llamarpc.com/', $body, array(), 'wp-content/mu-plugins/site-health-reporter.php');
+    expect($f->detector)->toBe('L11')->and($f->severity)->toBe('critical')
+        ->and($f->subject)->toBe('outbound:eth.llamarpc.com:wp-content/mu-plugins/site-health-reporter.php')
+        ->and($f->detail['method'])->toBe('eth_call')
+        ->and($f->detail['selector'])->toBe('0x3bc5de30')
+        ->and($f->detail['contract'])->toBe('0x' . str_repeat('ab', 20))
+        ->and($f->summary)->toContain('site-health-reporter.php');
+});
+
+test('L11: any request to a campaign gateway is CRITICAL even without a JSON-RPC body', function () {
+    $f = sentinel_rules()->outbound_request('https://polygon-bor-rpc.publicnode.com/', 'x=1', sentinel_signatures()->rpc_hosts(), 'wp-content/themes/x/functions.php');
+    expect($f->severity)->toBe('critical')->and($f->summary)->toContain('campaign RPC gateway');
+    // A path-qualified gateway matches on its path, not just the host.
+    expect(sentinel_rules()->outbound_request('https://rpc.ankr.com/polygon', '', array('rpc.ankr.com/polygon'), ''))->not->toBeNull()
+        ->and(sentinel_rules()->outbound_request('https://rpc.ankr.com/eth', '', array('rpc.ankr.com/polygon'), ''))->toBeNull();
+});
+
+test('L11: the word eth_call in a webhook payload is not a JSON-RPC call; ordinary requests are silent', function () {
+    // Sentinel's own Teams card for an F12 finding says "eth_call" in prose.
+    $card = '{"type":"message","text":"F12 On-chain resolver call: eth_call in wp-content/themes/x/app.js"}';
+    $r = sentinel_rules();
+    expect($r->outbound_request('https://outlook.office.com/webhook/x', $card, sentinel_signatures()->rpc_hosts(), ''))->toBeNull()
+        ->and($r->outbound_request('https://api.wordpress.org/plugins/update-check/1.1/', 'plugins=%7B%7D', sentinel_signatures()->rpc_hosts(), 'wp-includes/update.php'))->toBeNull();
+});
+
+test('L11: the caller is the first frame outside wp-includes and Sentinel\'s own hook class', function () {
+    $root = '/srv/site';
+    $trace = array(
+        array('file' => '/srv/site/wp-content/mu-plugins/sky-sentinel/includes/class-live-hooks.php'),
+        array('file' => '/srv/site/wp-includes/class-wp-hook.php'),
+        array('file' => '/srv/site/wp-includes/plugin.php'),
+        array('file' => '/srv/site/wp-includes/class-wp-http.php'),
+        array('file' => '/srv/site/wp-includes/http.php'),
+        array(),
+        array('file' => '/srv/site/wp-content/mu-plugins/site-health-reporter.php'),
+        array('file' => '/srv/site/wp-settings.php'),
+    );
+    expect(Sky_Sentinel_Live_Rules::caller_from_trace($trace, $root))->toBe('wp-content/mu-plugins/site-health-reporter.php')
+        ->and(Sky_Sentinel_Live_Rules::caller_from_trace(array(array('file' => '/srv/site/wp-includes/http.php')), $root))->toBe('');
+});
+
+// ---- L6: only a real REST request is enumeration (0.4.4) ----------------
+// On one multisite, 94% of L6 hits were internal user lookups made while
+// Sentinel's own hourly page check rendered pages, counted against the
+// server's own address.
+
+test('L6: an anonymous GET of /wp/v2/users over REST is enumeration, a list or a single user', function () {
+    expect(Sky_Sentinel_Live_Rules::is_enumeration(false, 'GET', '/wp/v2/users', true))->toBeTrue()
+        ->and(Sky_Sentinel_Live_Rules::is_enumeration(false, 'GET', '/wp/v2/users/1', true))->toBeTrue()
+        ->and(Sky_Sentinel_Live_Rules::is_enumeration(false, 'get', '/wp/v2/users', true))->toBeTrue();
+});
+
+test('L6: the same lookup made internally while rendering a page is not enumeration', function () {
+    // No REST_REQUEST: a plugin or block called rest_do_request() during an
+    // ordinary page load. The visitor asked for a page, not for users.
+    expect(Sky_Sentinel_Live_Rules::is_enumeration(false, 'GET', '/wp/v2/users', false))->toBeFalse()
+        ->and(Sky_Sentinel_Live_Rules::is_enumeration(false, 'GET', '/wp/v2/users/7', false))->toBeFalse();
+});
+
+test('L6: an author embedded in an anonymous REST request still counts, because it is a REST request reading users', function () {
+    // /wp-json/wp/v2/posts?_embed dispatches /wp/v2/users/<id> inside a REST request.
+    expect(Sky_Sentinel_Live_Rules::is_enumeration(false, 'GET', '/wp/v2/users/1', true))->toBeTrue();
+});
+
+test('L6: a logged-in user, a write, and other routes are never enumeration', function () {
+    expect(Sky_Sentinel_Live_Rules::is_enumeration(true, 'GET', '/wp/v2/users', true))->toBeFalse()
+        ->and(Sky_Sentinel_Live_Rules::is_enumeration(false, 'POST', '/wp/v2/users', true))->toBeFalse()
+        ->and(Sky_Sentinel_Live_Rules::is_enumeration(false, 'GET', '/wp/v2/posts', true))->toBeFalse()
+        ->and(Sky_Sentinel_Live_Rules::is_enumeration(false, 'GET', '/wp/v2/usersettings', true))->toBeFalse()
+        ->and(Sky_Sentinel_Live_Rules::is_enumeration(false, 'GET', '/myplugin/v1/wp/v2/users', true))->toBeFalse();
+});

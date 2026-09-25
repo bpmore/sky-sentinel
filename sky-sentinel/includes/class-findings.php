@@ -158,12 +158,94 @@ final class Sky_Sentinel_Findings {
 		return $out;
 	}
 
-	public function list( string $status = 'open', int $limit = 200 ): array {
-		$order = "ORDER BY FIELD(severity,'critical','high','medium','info'), last_seen DESC LIMIT %d";
-		if ( 'all' === $status ) {
-			return (array) $this->db->get_results( $this->db->prepare( "SELECT * FROM {$this->table} {$order}", $limit ) );
+	/**
+	 * Columns the Findings table can be sorted by, each with the direction a
+	 * first click should give (the one you usually want: critical first, most
+	 * seen first, newest first, A to Z for text). Only these ever reach SQL.
+	 */
+	public const SORTS = array(
+		'severity'   => 'desc',
+		'detector'   => 'asc',
+		'site'       => 'asc',
+		'subject'    => 'asc',
+		'status'     => 'asc',
+		'first_seen' => 'desc',
+		'last_seen'  => 'desc',
+		'seen'       => 'desc',
+	);
+
+	/** A requested sort, made safe: an unknown column is severity, an unknown direction is that column's default. */
+	public static function sort_of( string $sort, string $dir ): array {
+		$sort = isset( self::SORTS[ $sort ] ) ? $sort : 'severity';
+		$dir  = strtolower( $dir );
+		return array( $sort, in_array( $dir, array( 'asc', 'desc' ), true ) ? $dir : self::SORTS[ $sort ] );
+	}
+
+	/**
+	 * The ORDER BY for a sort. Built only from SORTS and two literal
+	 * directions, never from the request. Detectors sort naturally (F2 before
+	 * F10, D10 after D9); ties fall back to severity, then most recent, then
+	 * id, so a page never shuffles between loads.
+	 */
+	public static function order_by( string $sort, string $dir ): string {
+		list( $sort, $dir ) = self::sort_of( $sort, $dir );
+		$d    = 'asc' === $dir ? 'ASC' : 'DESC';
+		$cols = array(
+			'severity'   => "FIELD(severity,'info','medium','high','critical') {$d}",
+			'detector'   => "LEFT(detector,1) {$d}, CAST(SUBSTRING(detector,2) AS UNSIGNED) {$d}, detector {$d}",
+			'site'       => "blog_id {$d}",
+			'subject'    => "subject {$d}",
+			'status'     => "FIELD(status,'open','acknowledged','muted','resolved') {$d}",
+			'first_seen' => "first_seen {$d}",
+			'last_seen'  => "last_seen {$d}",
+			'seen'       => "seen_count {$d}",
+		);
+		return 'ORDER BY ' . $cols[ $sort ] . ", FIELD(severity,'critical','high','medium','info'), last_seen DESC, id DESC";
+	}
+
+	/**
+	 * A detector id from the request, or '' for every detector. Ids are
+	 * letters then digits (F18, L10, D5, P0, SCAN); anything else is ''.
+	 */
+	public static function detector_of( string $detector ): string {
+		$detector = strtoupper( trim( $detector ) );
+		return preg_match( '/^[A-Z]{1,6}[0-9]{0,3}$/', $detector ) ? $detector : '';
+	}
+
+	/**
+	 * @param string $detector '' for all, else one detector id (see detector_of()).
+	 */
+	public function list( string $status = 'open', int $limit = 200, string $sort = 'severity', string $dir = '', string $detector = '' ): array {
+		$where = array();
+		$args  = array();
+		if ( 'all' !== $status ) {
+			$where[] = 'status = %s';
+			$args[]  = $status;
 		}
-		return (array) $this->db->get_results( $this->db->prepare( "SELECT * FROM {$this->table} WHERE status = %s {$order}", $status, $limit ) );
+		$detector = self::detector_of( $detector );
+		if ( '' !== $detector ) {
+			$where[] = 'detector = %s';
+			$args[]  = $detector;
+		}
+		$args[] = $limit;
+		$sql    = "SELECT * FROM {$this->table}" . ( $where ? ' WHERE ' . implode( ' AND ', $where ) : '' ) . ' ' . self::order_by( $sort, $dir ) . ' LIMIT %d';
+		return (array) $this->db->get_results( $this->db->prepare( $sql, ...$args ) );
+	}
+
+	/**
+	 * How many findings each detector has in a status, detectors in natural
+	 * order (F2 before F10), for the Findings tab's filter.
+	 *
+	 * @return array<string,int>
+	 */
+	public function detector_counts( string $status ): array {
+		$where = 'all' === $status ? '' : $this->db->prepare( ' WHERE status = %s', $status );
+		$rows  = (array) $this->db->get_results( "SELECT detector, COUNT(*) AS n FROM {$this->table}{$where} GROUP BY detector ORDER BY LEFT(detector,1), CAST(SUBSTRING(detector,2) AS UNSIGNED), detector" );
+		$out   = array();
+		foreach ( $rows as $r ) {
+			$out[ (string) $r->detector ] = (int) $r->n;
+		}
+		return $out;
 	}
 
 	public function get( int $id ): ?object {

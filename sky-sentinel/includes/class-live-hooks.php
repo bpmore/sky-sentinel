@@ -16,11 +16,18 @@ final class Sky_Sentinel_Live_Hooks {
 	private Sky_Sentinel_Live_Rules $rules;
 	private Sky_Sentinel_Findings $findings;
 	private Sky_Sentinel_Alerts $alerts;
+	/** @var string[] */
+	private array $rpc_hosts;
+	/** Set by password_reset, which core fires just before wp_set_password() in the lost-password flow. */
+	private bool $in_reset = false;
+	/** True while raise() runs, so our own alert's HTTP request is never inspected by L11. */
+	private bool $raising = false;
 
-	public function __construct( Sky_Sentinel_Live_Rules $rules, Sky_Sentinel_Findings $findings, Sky_Sentinel_Alerts $alerts ) {
-		$this->rules    = $rules;
-		$this->findings = $findings;
-		$this->alerts   = $alerts;
+	public function __construct( Sky_Sentinel_Live_Rules $rules, Sky_Sentinel_Findings $findings, Sky_Sentinel_Alerts $alerts, array $rpc_hosts = array() ) {
+		$this->rules     = $rules;
+		$this->findings  = $findings;
+		$this->alerts    = $alerts;
+		$this->rpc_hosts = $rpc_hosts;
 
 		// L1 / L7
 		add_action( 'login_init', array( $this, 'login_page_seen' ) );
@@ -33,6 +40,8 @@ final class Sky_Sentinel_Live_Hooks {
 		add_action( 'user_register', array( $this, 'user_registered' ) );
 		add_action( 'after_signup_user', array( $this, 'signup_created' ), 10, 4 );
 		add_action( 'add_user_to_blog', array( $this, 'added_to_blog' ), 10, 3 );
+		add_action( 'password_reset', array( $this, 'reset_flow' ) );
+		add_action( 'wp_set_password', array( $this, 'password_changed' ), 10, 2 );
 		// L3
 		add_action( 'upgrader_process_complete', array( $this, 'package_landed' ), 10, 2 );
 		add_action( 'activated_plugin', array( $this, 'plugin_activated' ), 10, 2 );
@@ -45,6 +54,9 @@ final class Sky_Sentinel_Live_Hooks {
 		add_action( 'init', array( $this, 'file_manager_request' ), 1 );
 		// L6
 		add_filter( 'rest_pre_dispatch', array( $this, 'rest_users' ), 10, 3 );
+		// L11: first in line, so a filter that short-circuits the request
+		// cannot hide it. Observes and passes $pre through untouched.
+		add_filter( 'pre_http_request', array( $this, 'outbound' ), -999999, 3 );
 	}
 
 	// ---- helpers ----------------------------------------------------------
@@ -70,9 +82,14 @@ final class Sky_Sentinel_Live_Hooks {
 		if ( null === $f ) {
 			return;
 		}
-		$new = $this->findings->record( array( $f ), untrailingslashit( ABSPATH ) );
-		if ( $new ) {
-			$this->alerts->send( $new );
+		$this->raising = true;
+		try {
+			$new = $this->findings->record( array( $f ), untrailingslashit( ABSPATH ) );
+			if ( $new ) {
+				$this->alerts->send( $new );
+			}
+		} finally {
+			$this->raising = false;
 		}
 	}
 
@@ -124,6 +141,10 @@ final class Sky_Sentinel_Live_Hooks {
 		$ts[] = time();
 		$ts   = array_values( array_filter( $ts, fn( $t ) => $t > time() - Sky_Sentinel_Live_Rules::BURST_WINDOW ) );
 		set_site_transient( $key, $ts, Sky_Sentinel_Live_Rules::BURST_WINDOW );
+		// L13: every failure counts toward the day, burst or not, so a quiet
+		// night can be told apart from a deaf Sentinel. Concurrent failures
+		// can lose an increment; the count is for trends, not evidence.
+		update_site_option( Sky_Sentinel_Login_Tally::OPTION, Sky_Sentinel_Login_Tally::record( (array) get_site_option( Sky_Sentinel_Login_Tally::OPTION, array() ), $ip, time() ) );
 		if ( Sky_Sentinel_Live_Rules::is_burst( $ts, time() ) ) {
 			$this->raise( $this->rules->burst( $ip, count( $ts ), gmdate( 'Y-m-d' ) ) );
 		}
@@ -172,6 +193,19 @@ final class Sky_Sentinel_Live_Hooks {
 			$u = get_userdata( $user_id );
 			$this->raise( $this->rules->promoted( $u ? $u->user_login : "#{$user_id}", 'add_user_to_blog', $this->actor(), $blog_id ) );
 		}
+	}
+
+	public function reset_flow(): void {
+		$this->in_reset = true;
+	}
+
+	/** wp_set_password fires with ( $password, $user_id, $old_user_data ) since WordPress 6.2. The password is never read. */
+	public function password_changed( $password, $user_id ): void {
+		$u = get_userdata( (int) $user_id );
+		if ( ! $u ) {
+			return;
+		}
+		$this->raise( $this->rules->password_set( $u->user_login, self::privileged( $u ), $this->actor(), $this->in_reset, gmdate( 'Y-m-d\TH:i' ), get_current_blog_id() ) );
 	}
 
 	// ---- L3: packages -----------------------------------------------------
@@ -239,12 +273,24 @@ final class Sky_Sentinel_Live_Hooks {
 	}
 
 	// ---- L6: REST user enumeration ---------------------------------------
+	//
+	// The DETECTION here is sound. The optional block below is not, on any site
+	// running Advanced Custom Fields: ACF 6.4.x hooks
+	// ACF_Rest_Api::initialize() to rest_pre_dispatch at priority 10 and never
+	// returns the filtered value, so a WP_Error returned from this method at
+	// the same priority is discarded before dispatch() reads it and the request
+	// is served normally. Recording the finding is unaffected.
+	//
+	// Not worked around here on purpose. Refusing the route belongs to a
+	// plugin that runs after ACF and gates the route's own permission
+	// callback, and Sentinel's job is to report rather than to enforce. On an
+	// ACF site, leave sky_sentinel_block_user_enum off.
 
 	public function rest_users( $result, $server, $request ) {
-		if ( is_user_logged_in() || 'GET' !== $request->get_method() ) {
-			return $result;
-		}
-		if ( ! preg_match( '#^/wp/v2/users(?:/|$)#', $request->get_route() ) ) {
+		// Only a real REST request counts, and only a real REST request is
+		// ever refused: an internal lookup made while rendering a page is the
+		// page's business, and refusing it would break the page.
+		if ( ! Sky_Sentinel_Live_Rules::is_enumeration( is_user_logged_in(), (string) $request->get_method(), (string) $request->get_route(), defined( 'REST_REQUEST' ) && REST_REQUEST ) ) {
 			return $result;
 		}
 		$ip = $this->ip();
@@ -253,5 +299,25 @@ final class Sky_Sentinel_Live_Hooks {
 			return new WP_Error( 'rest_forbidden', 'Not available.', array( 'status' => 401 ) );
 		}
 		return $result;
+	}
+
+	// ---- L11: outbound on-chain lookups -------------------------------------
+
+	public function outbound( $pre, $args, $url ) {
+		if ( $this->raising || ! is_string( $url ) ) {
+			return $pre;
+		}
+		$body = $args['body'] ?? '';
+		$body = is_string( $body ) ? $body : (string) wp_json_encode( $body );
+		// Cheap first: nothing to parse unless it could be JSON-RPC or a known gateway.
+		if ( ! str_contains( $body, 'eth_' ) && ! $this->rpc_hosts ) {
+			return $pre;
+		}
+		$caller = Sky_Sentinel_Live_Rules::caller_from_trace( debug_backtrace( DEBUG_BACKTRACE_IGNORE_ARGS, 12 ), untrailingslashit( ABSPATH ) );
+		if ( str_contains( $caller, '/sky-sentinel/' ) ) {
+			return $pre; // our own webhook, heartbeat or page check
+		}
+		$this->raise( $this->rules->outbound_request( $url, substr( $body, 0, 65536 ), $this->rpc_hosts, $caller ) );
+		return $pre;
 	}
 }

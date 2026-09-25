@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-17",
+  "version": "2026-09-24b",
   "f5_write_then_include": [
     "aws-sdk/",
     "elfinder/",
@@ -40,6 +40,9 @@
     "index.php"
   ],
   "network_cidrs": [],
+  "hook_census_files": [
+    "plugins/gravityforms/includes/settings/class-gf-settings-service-provider.php"
+  ],
   "d2_script_hosts": [
     "assets.calendly.com",
     "cdn.jsdelivr.net",

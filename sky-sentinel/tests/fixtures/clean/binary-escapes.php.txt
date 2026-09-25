@@ -1,0 +1,11 @@
+<?php
+// Byte-order marks, magic numbers and control characters: hex escapes that
+// spell nothing. F20 must stay quiet.
+const UTF8_BOM = "\xEF\xBB\xBF";
+const PNG_MAGIC = "\x89PNG\x0D\x0A\x1A\x0A";
+function strip_bom( $s ) { return str_starts_with( $s, "\xEF\xBB\xBF" ) ? substr( $s, 3 ) : $s; }
+$escaped = str_replace( array( "\x00", "\x1f" ), '', $input );
+// One escape in an ordinary query is a newline someone wrote in hex, not a
+// hidden word: F20 wants two or more. And prose is not SQL.
+$sql = "SELECT ID FROM {$wpdb->posts} WHERE post_status = 'publish'\x0A";
+$label = __( "Please select an option\x3A\x20" );

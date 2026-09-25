@@ -21,6 +21,7 @@ final class Sky_Sentinel_Runner {
 	public const PAGES_QUEUE     = 'sky_sentinel_pages_queue';
 	public const PAGES_INVENTORY = 'sky_sentinel_page_inventory';
 	public const PAGES_LAST      = 'sky_sentinel_pages_last';
+	public const PAGES_SKIPPED   = 'sky_sentinel_pages_skipped';
 
 	private Sky_Sentinel_Signatures $sig;
 	private Sky_Sentinel_Findings $findings;
@@ -108,6 +109,13 @@ final class Sky_Sentinel_Runner {
 		foreach ( $checks->run( $baseline['inventory'] ?? null ) as $f ) {
 			$found[] = $f;
 		}
+		// L12: cron schedules that were not there at signing. Baselines signed
+		// before L12 have no list, and say nothing rather than everything.
+		if ( isset( $baseline['inventory']['cron_schedules'] ) && function_exists( 'wp_get_schedules' ) ) {
+			foreach ( Sky_Sentinel_Hook_Census::diff_schedules( (array) $baseline['inventory']['cron_schedules'], wp_get_schedules() ) as $f ) {
+				$found[] = $f;
+			}
+		}
 		// D8 and D9: who is logged in right now, from where.
 		foreach ( $this->session_checks()->run( $this->privileged_logins( $checks ), time() ) as $f ) {
 			$found[] = $f;
@@ -165,6 +173,7 @@ final class Sky_Sentinel_Runner {
 		// script was not there when the site was last clean".
 		$inventory['self']  = self::self_hashes();
 		$inventory['pages'] = (array) get_site_option( self::PAGES_INVENTORY, array() );
+		$inventory['cron_schedules'] = array_keys( wp_get_schedules() );
 		$manifest  = Sky_Sentinel_Baseline::build( $files, (array) $last['packages'], $inventory, (string) $user_id, time() );
 		$signature = Sky_Sentinel_Baseline::sign( $manifest, $key );
 		update_site_option( self::BASELINE_OPTION, wp_json_encode( $manifest ) );
@@ -214,16 +223,30 @@ final class Sky_Sentinel_Runner {
 
 	/** Hourly: queue every site's home and login page. The tick drains it. */
 	public function queue_pages(): void {
-		$queue = array();
-		$sites = is_multisite() ? get_sites( array( 'number' => 500 ) ) : array( (object) array( 'blog_id' => 1 ) );
+		$queue   = array();
+		$skipped = array();
+		$sites   = is_multisite() ? get_sites( array( 'number' => 500 ) ) : array( (object) array( 'blog_id' => 1 ) );
 		foreach ( $sites as $site ) {
 			$blog_id = (int) $site->blog_id;
 			$home    = is_multisite() ? get_home_url( $blog_id ) : home_url();
 			$host    = (string) parse_url( $home, PHP_URL_HOST );
+			// Archived, deactivated and spam sites are not fetched; see
+			// Page_Check::skip_reason(). Named on the Dashboard, not silent.
+			$why = Sky_Sentinel_Page_Check::skip_reason( $site );
+			if ( null !== $why ) {
+				$skipped[] = array( 'blog_id' => $blog_id, 'host' => $host, 'why' => $why );
+				continue;
+			}
 			$queue[] = array( 'blog_id' => $blog_id, 'url' => trailingslashit( $home ), 'label' => "{$host}:home" );
 			$queue[] = array( 'blog_id' => $blog_id, 'url' => trailingslashit( $home ) . 'wp-login.php', 'label' => "{$host}:login" );
 		}
 		update_site_option( self::PAGES_QUEUE, $queue );
+		update_site_option( self::PAGES_SKIPPED, $skipped );
+		// A skipped site's pages leave the inventory, so "last full pass over
+		// N pages" counts pages that are actually checked.
+		$labels    = array_column( $queue, 'label' );
+		$inventory = (array) get_site_option( self::PAGES_INVENTORY, array() );
+		update_site_option( self::PAGES_INVENTORY, array_intersect_key( $inventory, array_flip( $labels ) ) );
 	}
 
 	/** Drain the page queue for up to $budget seconds. Returns pages done this call. */
@@ -327,6 +350,86 @@ final class Sky_Sentinel_Runner {
 		}
 	}
 
+	// ---- L9: the load path --------------------------------------------------
+
+	/**
+	 * Every tick, once a baseline exists: mu-plugins and the drop-ins against
+	 * the hashes the baseline recorded for them. A dozen files, so it costs
+	 * nothing, and a malicious mu-plugin is found within a minute instead of
+	 * at the next six-hourly walk. The baseline's own file list is the
+	 * reference, so a baseline signed before L9 existed already covers it.
+	 */
+	public function load_path_check(): void {
+		$baseline = $this->baseline();
+		if ( null === $baseline ) {
+			return;
+		}
+		$content = $this->rel( WP_CONTENT_DIR );
+		$mu      = $this->rel( WPMU_PLUGIN_DIR );
+		if ( null === $content || null === $mu ) {
+			return; // wp-content outside ABSPATH: the walk never saw it either
+		}
+		$was = array();
+		foreach ( (array) $baseline['files'] as $path => $sha ) {
+			if ( Sky_Sentinel_FS_Checks::is_load_path( (string) $path, $content, $mu ) ) {
+				$was[ $path ] = $sha;
+			}
+		}
+		$now   = array();
+		$paths = array_merge( (array) glob( WPMU_PLUGIN_DIR . '/*.php' ), array_map( fn( $d ) => WP_CONTENT_DIR . '/' . $d, Sky_Sentinel_FS_Checks::DROPINS ) );
+		foreach ( $paths as $abs ) {
+			if ( ! is_string( $abs ) || ! is_file( $abs ) || is_link( $abs ) ) {
+				continue;
+			}
+			$rel = $this->rel( $abs );
+			$sha = @hash_file( 'sha256', $abs );
+			if ( null !== $rel && is_string( $sha ) && Sky_Sentinel_FS_Checks::is_load_path( $rel, $content, $mu ) ) {
+				$now[ $rel ] = $sha;
+			}
+		}
+		$this->record_and_alert( Sky_Sentinel_FS_Checks::diff_load_path( $was, $now ) );
+	}
+
+	// ---- L10: the hook census -------------------------------------------------
+
+	/**
+	 * Who is on the hiding and password hooks right now. Needs no baseline:
+	 * the question is where a callback's file lives, not whether it moved.
+	 * Runs in whatever request calls it, so the tick sees what cron loads and
+	 * the admin-side call sees anything registered only in wp-admin.
+	 */
+	public function hook_census(): void {
+		global $wp_filter;
+		$content = $this->rel( WP_CONTENT_DIR );
+		$mu      = $this->rel( WPMU_PLUGIN_DIR );
+		$self    = $this->rel( Sky_Sentinel::dir() );
+		if ( null === $content || null === $mu ) {
+			return;
+		}
+		$census = new Sky_Sentinel_Hook_Census( $content, $mu, (string) $self, $this->sig->allow_list( 'hook_census_files' ) );
+		$this->record_and_alert( $census->classify( Sky_Sentinel_Hook_Census::collect( (array) $wp_filter, $this->root ) ) );
+	}
+
+	/** An absolute path relative to the scan root, or null if it is outside it. */
+	private function rel( string $abs ): ?string {
+		// Both sides resolved, because the walk resolves its root and the
+		// manifest's paths are relative to that.
+		$abs  = rtrim( str_replace( '\\', '/', realpath( $abs ) ?: $abs ), '/' );
+		$root = rtrim( str_replace( '\\', '/', realpath( $this->root ) ?: $this->root ), '/' ) . '/';
+		return str_starts_with( $abs . '/', $root ) ? substr( $abs, strlen( $root ) ) : null;
+	}
+
+	/** @param Sky_Sentinel_Finding[] $found */
+	private function record_and_alert( array $found ): void {
+		if ( ! $found ) {
+			return;
+		}
+		$new = $this->findings->record( $found, $this->root );
+		if ( $new ) {
+			$this->alerts->send( $new );
+		}
+	}
+
 	// ---- Networks and Tor -------------------------------------------------
 
 	public function network(): Sky_Sentinel_Network {
@@ -421,7 +524,14 @@ final class Sky_Sentinel_Runner {
 				sort( $out );
 				return $out;
 			},
-			is_multisite()
+			is_multisite(),
+			function (): int {
+				// blog_id 0: no capabilities join, so every row in the users
+				// table counts, on a network and a single site alike. The
+				// query fires pre_user_query, and that is the point.
+				$q = new WP_User_Query( array( 'blog_id' => 0, 'fields' => 'ID', 'number' => 1, 'count_total' => true ) );
+				return (int) $q->get_total();
+			}
 		);
 	}
 

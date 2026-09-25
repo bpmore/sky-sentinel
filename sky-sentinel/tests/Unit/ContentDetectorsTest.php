@@ -187,6 +187,7 @@ test('every clean fixture is silent, or the one it is allowed to be loud about',
         'big-plugin-activation.php.txt' => array('F16'), // MEDIUM, by design
         'sw-from-variable.js.txt'       => array('F15'), // HIGH under a stranger path; excused only by a known plugin path
         'scanner-that-unzips.php.txt'   => array('F16'), // same: excused only under a known scanner's path
+        'self-updater.php.txt'          => array('F18'), // MEDIUM: writes __FILE__ without backdating or locking it
     );
     $d = new Sky_Sentinel_Content_Detectors(sentinel_signatures());
     foreach (glob(__DIR__ . '/../fixtures/clean/*.txt') as $file) {
@@ -266,4 +267,146 @@ test('F16: a scanner that unpacks plugins to compare them is excused by path, an
     $flagged = sentinel_scan('clean/scanner-that-unzips.php.txt', 'wp-content/plugins/site-helper/site-helper.php');
     expect(sentinel_ids($excused))->not->toContain('F16')
         ->and(sentinel_ids($flagged))->toContain('F16');
+});
+
+// ---- The self-healing mu-plugin family (Wordfence, 2026-09) ---------------
+// Its hook names, option keys and paths are cipher-encoded. These detectors
+// match what the cipher leaves in the clear.
+
+function sentinel_by_detector(array $findings): array {
+    $out = array();
+    foreach ($findings as $f) { $out[$f->detector] = $f->severity; }
+    ksort($out);
+    return $out;
+}
+
+test('F18: rewriting __FILE__, then backdating and locking it, is CRITICAL', function () {
+    $f = sentinel_scan('bad/mu-self-restore.php.txt', 'wp-content/mu-plugins/site-health-reporter.php');
+    $f18 = array_values(array_filter($f, fn($x) => $x->detector === 'F18'))[0];
+    expect($f18->severity)->toBe('critical')->and($f18->detail)->toBe(array('backdates' => true, 'locks' => true))
+        ->and($f18->summary)->toContain('backdates')->toContain('0444');
+});
+
+test('F18: a self-updater that writes __FILE__ and nothing more is MEDIUM', function () {
+    expect(sentinel_by_detector(sentinel_scan('clean/self-updater.php.txt', 'wp-content/plugins/tool/tool.php')))->toBe(array('F18' => 'medium'));
+});
+
+test('F18: rename() onto __FILE__ counts as a write; touching some other file does not count as a backdate', function () {
+    $d = new Sky_Sentinel_Content_Detectors(sentinel_signatures());
+    $rename = "<?php\n\$tmp = tempnam(sys_get_temp_dir(), 'sc_');\nif (!@rename(\$tmp, __FILE__)) { @copy(\$tmp, __FILE__); }\n@chmod(__FILE__, 0444);";
+    expect(sentinel_by_detector($d->scan('wp-content/db.php', $rename)))->toBe(array('F18' => 'critical'));
+    $other = "<?php\nfile_put_contents(__FILE__, \$x);\ntouch(\$log, time());";
+    expect(sentinel_by_detector($d->scan('wp-content/plugins/x/x.php', $other)))->toBe(array('F18' => 'medium'));
+});
+
+test('F19: the substitution cipher, and a plain character-lookup loop is not one', function () {
+    expect(sentinel_by_detector(sentinel_scan('bad/string-cipher.php.txt', 'wp-content/advanced-cache.php')))->toBe(array('F19' => 'high'));
+    // backup-plugin has strpos($vowels, $word[$i]) but no fragmented alphabet.
+    expect(sentinel_ids(sentinel_scan('clean/backup-plugin.php.txt', 'wp-content/plugins/backup/backup.php')))->not->toContain('F19');
+});
+
+test('F20: hex escapes that decode to SQL are HIGH and name what they decode to', function () {
+    $f = array_values(array_filter(sentinel_scan('bad/hex-sql.php.txt', 'wp-content/db.php'), fn($x) => $x->detector === 'F20'));
+    expect($f)->toHaveCount(1)->and($f[0]->severity)->toBe('high');
+    $decoded = implode(' | ', $f[0]->detail['decoded']);
+    expect($decoded)->toContain('UPDATE {$table}')->toContain('SELECT option_value')->toContain('START TRANSACTION');
+});
+
+test('F20: byte-order marks, magic numbers and control characters decode to nothing and stay quiet', function () {
+    expect(sentinel_ids(sentinel_scan('clean/binary-escapes.php.txt', 'wp-content/plugins/files/files.php')))->toBe(array());
+});
+
+test('F20: function names match in any case, because PHP calls them in any case', function () {
+    $d = new Sky_Sentinel_Content_Detectors(sentinel_signatures());
+    $f = $d->scan('wp-content/db.php', "<?php\n\$fn = \"\\x47ET_\\x4fPTION\";\n\$fn('bu');");
+    expect(sentinel_by_detector($f))->toBe(array('F20' => 'high'));
+});
+
+test('F20 only reads PHP: the same escapes in a .js file are not its business', function () {
+    $d = new Sky_Sentinel_Content_Detectors(sentinel_signatures());
+    expect(sentinel_ids($d->scan('wp-content/themes/x/app.js', sentinel_fixture('bad/hex-sql.php.txt'))))->not->toContain('F20');
+});
+
+test('F21: three or more server roots plus mu-plugins is a spreader; a backup tool with two roots is not', function () {
+    $f = array_values(array_filter(sentinel_scan('bad/spreader.php.txt', 'wp-content/mu-plugins/x.php'), fn($x) => $x->detector === 'F21'));
+    expect($f)->toHaveCount(1)->and($f[0]->severity)->toBe('high')->and(count($f[0]->detail['roots']))->toBeGreaterThanOrEqual(3);
+    expect(sentinel_ids(sentinel_scan('clean/backup-plugin.php.txt', 'wp-content/plugins/backup/backup.php')))->not->toContain('F21');
+});
+
+test('F22: gateway names plus wp-config.php plus .env / .git/config is CRITICAL', function () {
+    $f = array_values(array_filter(sentinel_scan('bad/key-harvest.php.txt', 'wp-content/mu-plugins/x.php'), fn($x) => $x->detector === 'F22'));
+    expect($f)->toHaveCount(1)->and($f[0]->severity)->toBe('critical')->and($f[0]->detail)->toBe(array('config' => true, 'secrets' => true));
+});
+
+test('F22: a Stripe gateway plugin names its settings and reads nothing else; a backup tool reads wp-config.php and names no gateway', function () {
+    expect(sentinel_ids(sentinel_scan('clean/stripe-gateway.php.txt', 'wp-content/plugins/stripe/stripe.php')))->toBe(array())
+        ->and(sentinel_ids(sentinel_scan('clean/backup-plugin.php.txt', 'wp-content/plugins/backup/backup.php')))->toBe(array());
+});
+
+test('F22: gateway names with only one of the two reads is HIGH', function () {
+    $d = new Sky_Sentinel_Content_Detectors(sentinel_signatures());
+    $only_env = "<?php\n\$t = file_get_contents(ABSPATH . '.env');\n\$s = get_option('woocommerce_stripe_settings');";
+    expect(sentinel_by_detector($d->scan('wp-content/plugins/x/x.php', $only_env)))->toBe(array('F22' => 'high'));
+});
+
+test('F23: writing active_plugins with raw SQL, and a restore that rewrites siteurl is not it', function () {
+    expect(sentinel_by_detector(sentinel_scan('bad/reactivate-sql.php.txt', 'wp-content/plugins/x/x.php')))->toBe(array('F23' => 'high'))
+        ->and(sentinel_ids(sentinel_scan('clean/backup-plugin.php.txt', 'wp-content/plugins/backup/backup.php')))->not->toContain('F23');
+});
+
+test('F11: the Wordfence sample\'s selector and throttle names are campaign indicators', function () {
+    $d = new Sky_Sentinel_Content_Detectors(sentinel_signatures());
+    $f = $d->scan('wp-content/plugins/x/x.js', '{"jsonrpc":"2.0","id":3,"method":"eth_call","params":[{"data":"0x3bc5de30"}]}');
+    expect(sentinel_by_detector($f))->toHaveKey('F11')->and(sentinel_by_detector($f)['F11'])->toBe('critical');
+    $g = $d->scan('wp-content/plugins/x/x.php', "<?php if (get_transient('sc_recover_check')) return;");
+    expect(sentinel_ids($g))->toContain('F11');
+});
+
+test('F12: an address near an Ethereum mainnet gateway the old pattern missed', function () {
+    $d = new Sky_Sentinel_Content_Detectors(sentinel_signatures());
+    $js = "var c='0x" . str_repeat('ab', 20) . "'; fetch('https://cloudflare-eth.com', {method:'POST'});";
+    expect(sentinel_ids($d->scan('wp-content/themes/x/app.js', $js)))->toContain('F12');
+    $merkle = "var c='0x" . str_repeat('cd', 20) . "'; fetch('https://eth.merkle.io', {method:'POST'});";
+    expect(sentinel_ids($d->scan('wp-content/themes/x/app.js', $merkle)))->toContain('F12');
+});
+
+test('F21: a diagnostics page listing five server roots but never mu-plugins is not a spreader', function () {
+    expect(sentinel_ids(sentinel_scan('clean/server-info.php.txt', 'wp-content/plugins/server-info/info.php')))->toBe(array());
+});
+
+// ---- From a scan of a real compromised install, 2026-09-24 --------------
+
+test('F23: prose about active_plugins and update_option() are not raw SQL', function () {
+    // Case-insensitive, F23 fired 16 times on a real install: every Akismet copy,
+    // Freemius, Gravity Perks and a custom SEOPress updater.
+    expect(sentinel_ids(sentinel_scan('clean/plugin-load-order.php.txt', 'wp-content/plugins/akismet/class.akismet.php')))->not->toContain('F23');
+    // ...and the SQL shape still fires.
+    expect(sentinel_ids(sentinel_scan('bad/reactivate-sql.php.txt', 'wp-content/plugins/x/x.php')))->toContain('F23');
+});
+
+/** A loader with the real build's proportions: a ~7.8 KB numeric array, the XOR ~8 KB in. */
+function sentinel_long_loader(): string {
+    $nums = implode(',', array_map(fn($i) => ($i * 37) % 101, range(1, 2700)));
+    return "(function(){ var x418c5a=4309; if(x418c5a>0){var y=x418c5a-4910}else{var y=4910} var z=y*18; var _0x3d75fd8731c6=[{$nums}]; var o=''; for(var i=0;i<_0x3d75fd8731c6.length;i++){o+=String.fromCharCode(_0x3d75fd8731c6[i]^(z&255));} })();";
+}
+
+test('F10: a loader whose array outruns 4 KB is still the loader, whole-file and appended', function () {
+    // A real-install scan found F10 silent on both loader builds: its array closes
+    // ~7.9 KB in and the XOR is ~8.1 KB in, past a 4 KB window.
+    $loader = sentinel_long_loader();
+    expect(strlen($loader))->toBeGreaterThan(7000)->and(strpos($loader, '^'))->toBeGreaterThan(4096);
+    $whole = Sky_Sentinel_Content_Detectors::loader_structure($loader);
+    expect($whole['shape'])->toBe('decoder-iife')->and($whole['appended'])->toBeFalse();
+    $appended = Sky_Sentinel_Content_Detectors::loader_structure(str_repeat("jQuery('.slide').fadeIn(200);\n", 75) . $loader);
+    expect($appended['appended'])->toBeTrue()->and($appended['offset'])->toBeGreaterThan(2000);
+});
+
+test('F10: the array must start near the opening, and an IIFE with no XOR in reach is not the loader', function () {
+    $nums = implode(',', range(1, 40));
+    // A numeric table 2 KB into an ordinary IIFE.
+    $late = "(function(){ var n=0; " . str_repeat('n++; ', 450) . "var t=[{$nums}]; return t[n^1]; })();";
+    expect(Sky_Sentinel_Content_Detectors::loader_structure($late))->toBeNull();
+    // Array in reach, XOR 20 KB away.
+    $far = "(function(){ var n=0; var t=[{$nums}]; " . str_repeat('n++; ', 4200) . " return t[n^1]; })();";
+    expect(Sky_Sentinel_Content_Detectors::loader_structure($far))->toBeNull();
 });

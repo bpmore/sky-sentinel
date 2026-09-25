@@ -110,3 +110,30 @@ test('P0: a site answering 410 Gone is retired, INFO not MEDIUM', function () {
     $pc = sentinel_pages(array('https://dead.example.test/' => array(404, 'Not found')));
     expect($pc->check('https://dead.example.test/', 'dead.example.test:home', null, null)['findings'][0]->severity)->toBe('medium');
 });
+
+// ---- Retired sites are not page-checked (0.4.6) --------------------------
+
+function sentinel_site(array $flags = array()): object {
+    // WP_Site carries its flags as strings '0' / '1'.
+    return (object) ($flags + array('blog_id' => '50', 'archived' => '0', 'deleted' => '0', 'spam' => '0', 'public' => '1', 'mature' => '0'));
+}
+
+test('a live site is page-checked', function () {
+    expect(Sky_Sentinel_Page_Check::skip_reason(sentinel_site()))->toBeNull();
+});
+
+test('archived, deactivated and spam sites are skipped, and say why', function () {
+    expect(Sky_Sentinel_Page_Check::skip_reason(sentinel_site(array('archived' => '1'))))->toBe('archived')
+        ->and(Sky_Sentinel_Page_Check::skip_reason(sentinel_site(array('deleted' => '1'))))->toBe('deactivated')
+        ->and(Sky_Sentinel_Page_Check::skip_reason(sentinel_site(array('spam' => '1'))))->toBe('spam')
+        ->and(Sky_Sentinel_Page_Check::skip_reason(sentinel_site(array('archived' => 1))))->toBe('archived');
+});
+
+test('hidden from search engines or marked mature is still a live site, and is still checked', function () {
+    expect(Sky_Sentinel_Page_Check::skip_reason(sentinel_site(array('public' => '0'))))->toBeNull()
+        ->and(Sky_Sentinel_Page_Check::skip_reason(sentinel_site(array('mature' => '1'))))->toBeNull();
+});
+
+test('a single-site install has no flags at all, and is checked', function () {
+    expect(Sky_Sentinel_Page_Check::skip_reason((object) array('blog_id' => 1)))->toBeNull();
+});

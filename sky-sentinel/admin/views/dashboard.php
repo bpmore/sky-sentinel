@@ -31,6 +31,33 @@ $nonce = wp_create_nonce( 'sky_sentinel_step' );
 
 <h2>Rendered pages</h2>
 <p><?php $pl = get_site_option( Sky_Sentinel_Runner::PAGES_LAST ); echo is_array( $pl ) ? 'Last full pass ' . esc_html( $pl['at'] ) . ' over ' . (int) $pl['pages'] . ' pages (home and login of every site), hourly.' : 'No full pass yet. The hourly job queues every site; the minute tick fetches them.'; ?></p>
+<?php $skipped = (array) get_site_option( Sky_Sentinel_Runner::PAGES_SKIPPED, array() ); if ( $skipped ) : ?>
+	<p><?php echo (int) count( $skipped ); ?> archived, deactivated or spam site<?php echo 1 === count( $skipped ) ? ' is' : 's are'; ?> not page-checked (their files, content and administrators still are):
+	<?php echo esc_html( implode( ', ', array_map( fn( $s ) => '#' . (int) $s['blog_id'] . ' ' . $s['host'] . ' (' . $s['why'] . ')', $skipped ) ) ); ?>.</p>
+<?php endif; ?>
+
+<h2>Failed logins</h2>
+<?php
+$tally = (array) get_site_option( Sky_Sentinel_Login_Tally::OPTION, array() );
+if ( empty( $tally['since'] ) ) :
+	?>
+	<p>None counted since this version was installed. Every failed login is counted here by day; a burst of 10 from one address in 10 minutes also raises L7.</p>
+<?php else : ?>
+	<p>By day, UTC. L7 fires on 10 from one address in 10 minutes; a day of zero after a busy week raises L13 in the digest. Counting since <?php echo esc_html( $tally['since'] ); ?>.</p>
+	<table class="widefat striped" style="max-width:900px">
+		<thead><tr><th>Day</th><th>Failed logins</th><th>Addresses</th><th>Busiest address</th></tr></thead>
+		<tbody>
+		<?php foreach ( Sky_Sentinel_Login_Tally::recent( Sky_Sentinel_Login_Tally::compact( $tally, time() ), time(), 7 ) as $date => $d ) : ?>
+			<tr>
+				<td><?php echo esc_html( $date ); ?></td>
+				<td><?php echo (int) $d['total']; ?></td>
+				<td><?php echo (int) $d['distinct'] . ( $d['capped'] ? '+' : '' ); ?></td>
+				<td><?php echo $d['top_count'] ? esc_html( $d['top_ip'] ) . ' (' . (int) $d['top_count'] . ')' : '&mdash;'; ?></td>
+			</tr>
+		<?php endforeach; ?>
+		</tbody>
+	</table>
+<?php endif; ?>
 
 <h2>Baseline</h2>
 <p>

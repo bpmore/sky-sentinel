@@ -101,7 +101,7 @@ final class Sky_Sentinel_Network_Page {
 		$this->guard( 'sky_sentinel_export' );
 		$status = sanitize_key( $_GET['status'] ?? 'all' );
 		$format = 'json' === sanitize_key( $_GET['format'] ?? 'csv' ) ? 'json' : 'csv';
-		$rows   = $this->findings->list( $status, 5000 );
+		$rows   = $this->findings->list( $status, 5000, sanitize_key( $_GET['sort'] ?? '' ), sanitize_key( $_GET['dir'] ?? '' ), sanitize_key( $_GET['detector'] ?? '' ) );
 		$name   = sprintf( 'sentinel-%s-%s-%s.%s', sanitize_file_name( Sky_Sentinel::site_label() ), $status, gmdate( 'Ymd-His' ), $format );
 		nocache_headers();
 		header( 'Content-Disposition: attachment; filename="' . $name . '"' );
@@ -188,6 +188,16 @@ final class Sky_Sentinel_Network_Page {
 
 	public function act_on_finding(): void {
 		$this->guard( 'sky_sentinel_finding' );
+		// Back to the same tab and sort the button was pressed on, so
+		// acknowledging a row does not throw away the view.
+		list( $sort, $dir ) = Sky_Sentinel_Findings::sort_of( sanitize_key( $_POST['view_sort'] ?? '' ), sanitize_key( $_POST['view_dir'] ?? '' ) );
+		$view_status = sanitize_key( $_POST['view_status'] ?? 'open' );
+		$view = array(
+			'status' => in_array( $view_status, array( 'open', 'acknowledged', 'muted', 'resolved', 'all' ), true ) ? $view_status : 'open',
+			'sort'     => $sort,
+			'dir'      => $dir,
+			'detector' => Sky_Sentinel_Findings::detector_of( sanitize_key( $_POST['view_detector'] ?? '' ) ),
+		);
 		$status = sanitize_key( $_POST['status'] ?? '' );
 		$note   = sanitize_textarea_field( wp_unslash( $_POST['note'] ?? '' ) );
 		// One row, or the checked rows. A first scan of a large install produces
@@ -195,10 +205,10 @@ final class Sky_Sentinel_Network_Page {
 		$ids = isset( $_POST['ids'] ) ? array_map( 'intval', (array) $_POST['ids'] ) : array( (int) ( $_POST['id'] ?? 0 ) );
 		$ids = array_values( array_filter( $ids ) );
 		if ( ! $ids ) {
-			$this->back( 'findings', 'Nothing selected.' );
+			$this->back( 'findings', 'Nothing selected.', $view );
 		}
 		if ( 'muted' === $status && '' === trim( $note ) ) {
-			$this->back( 'findings', 'A mute needs a reason.' );
+			$this->back( 'findings', 'A mute needs a reason.', $view );
 		}
 		$n = 0;
 		foreach ( $ids as $id ) {
@@ -206,7 +216,7 @@ final class Sky_Sentinel_Network_Page {
 				$n++;
 			}
 		}
-		$this->back( 'findings', "{$n} finding(s) marked {$status}." );
+		$this->back( 'findings', "{$n} finding(s) marked {$status}.", $view );
 	}
 
 	public function save_settings(): void {
@@ -277,8 +287,8 @@ final class Sky_Sentinel_Network_Page {
 		check_admin_referer( $action );
 	}
 
-	private function back( string $tab, string $notice ): never {
-		wp_safe_redirect( add_query_arg( array( 'tab' => $tab, 'sentinel_notice' => rawurlencode( $notice ) ), Sky_Sentinel_Alerts::admin_url() ) );
+	private function back( string $tab, string $notice, array $view = array() ): never {
+		wp_safe_redirect( add_query_arg( array( 'tab' => $tab, 'sentinel_notice' => rawurlencode( $notice ) ) + $view, Sky_Sentinel_Alerts::admin_url() ) );
 		exit;
 	}
 }

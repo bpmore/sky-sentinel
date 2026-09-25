@@ -162,7 +162,8 @@ final class Sky_Sentinel_Scanner {
 					$head = self::head( $child_abs );
 				}
 
-				foreach ( $this->fs->check_file( $child_rel, $size, $head ) as $f ) {
+				$stat = $in_uploads ? false : @stat( $child_abs );
+				foreach ( $this->fs->check_file( $child_rel, $size, $head, $stat ? (int) $stat['mode'] : null, $stat ? (int) $stat['mtime'] : null, $stat ? (int) $stat['ctime'] : null ) as $f ) {
 					$findings[] = $f;
 				}
 				if ( $wants_content && is_string( $bytes ) ) {

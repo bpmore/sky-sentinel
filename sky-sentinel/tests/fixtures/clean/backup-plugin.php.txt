@@ -1,0 +1,31 @@
+<?php
+/**
+ * Plugin Name: Example Backup
+ */
+// A backup tool reads wp-config.php, skips .env and .git, knows a couple of
+// server roots, rewrites siteurl on restore, and writes its own log. None of
+// F18 to F23 should fire.
+class Example_Backup {
+	private $excludes = array( '.git', '.env', 'node_modules' );
+	private $roots = array( '/var/www', '/home' );
+	private $include = array( 'plugins', 'themes', 'mu-plugins', 'uploads' );
+	public function config_text() {
+		return file_get_contents( ABSPATH . 'wp-config.php' );
+	}
+	public function restore_urls( $wpdb, $url ) {
+		$wpdb->query( $wpdb->prepare( "UPDATE {$wpdb->options} SET option_value = %s WHERE option_name IN ('siteurl','home')", $url ) );
+	}
+	public function log( $line ) {
+		file_put_contents( WP_CONTENT_DIR . '/backup.log', $line, FILE_APPEND );
+		touch( WP_CONTENT_DIR . '/backup.log' );
+	}
+	public function first_vowel( $word ) {
+		$vowels = 'aeiou';
+		for ( $i = 0; $i < strlen( $word ); $i++ ) {
+			if ( false !== strpos( $vowels, $word[ $i ] ) ) {
+				return $i;
+			}
+		}
+		return -1;
+	}
+}

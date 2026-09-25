@@ -14,6 +14,11 @@
  * generated here and written to the file and nowhere else; the command
  * prints the path and the key's length, never the key.
  */
+// Ships inside mu-plugins, so it is reachable by URL. It is a command-line tool only.
+if ( 'cli' !== PHP_SAPI ) {
+	http_response_code( 404 );
+	exit;
+}
 $opts = getopt( '', array( 'label:', 'webhook::', 'heartbeat::', 'to::', 'out::', 'no-file-edit-lock' ) );
 if ( empty( $opts['label'] ) ) {
 	fwrite( STDERR, "Usage: make-config.php --label=<site> [--webhook=] [--heartbeat=] [--to=] [--out=]\n" );

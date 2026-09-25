@@ -1,0 +1,15 @@
+<?php
+/**
+ * Plugin Name: Example Stripe Gateway
+ */
+// A payment plugin names its own settings; it never reads wp-config.php as
+// text or looks for a .env. F22 must stay quiet.
+class Example_Stripe_Gateway {
+	public function keys() {
+		$settings = get_option( 'woocommerce_stripe_settings', array() );
+		return array( $settings['publishable_key'] ?? '', $settings['secret_key'] ?? '' );
+	}
+	public function mode() {
+		return defined( 'EXAMPLE_STRIPE_TEST_MODE' ) ? 'test' : 'live';
+	}
+}

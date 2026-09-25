@@ -1,0 +1,13 @@
+<?php
+/**
+ * Plugin Name: Example Server Info
+ */
+// A diagnostics screen that reports which common web roots are readable.
+// Many server roots, never mu-plugins, never writes: F21 must stay quiet.
+function example_server_roots() {
+	$out = array();
+	foreach ( array( '/var/www', '/var/www/html', '/srv/www', '/usr/local/www', '/home' ) as $dir ) {
+		$out[ $dir ] = is_readable( $dir );
+	}
+	return $out;
+}
