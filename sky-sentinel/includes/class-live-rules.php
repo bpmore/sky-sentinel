@@ -39,6 +39,8 @@ final class Sky_Sentinel_Live_Rules {
 				return new Sky_Sentinel_Finding( 'L1', 'critical', $subject, "Administrator {$login} logged in from a known attacker address {$ip}", $detail, null, $blog_id );
 			case Sky_Sentinel_Network::TOOLING_UA:
 				return new Sky_Sentinel_Finding( 'L1', 'critical', $subject, "Administrator {$login} logged in with the campaign's tooling user-agent", $detail, null, $blog_id );
+			case Sky_Sentinel_Network::ATTACKER_NET:
+				return new Sky_Sentinel_Finding( 'L1', 'high', $subject, "Administrator {$login} logged in from {$ip}, in the same network as a known attacker address", $detail, null, $blog_id );
 			case Sky_Sentinel_Network::TOR_EXIT:
 				return new Sky_Sentinel_Finding( 'L1', 'high', $subject, "Administrator {$login} logged in from a Tor exit {$ip}", $detail, null, $blog_id );
 			case Sky_Sentinel_Network::OUTSIDE_ALLOWED:

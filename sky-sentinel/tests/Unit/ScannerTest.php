@@ -159,3 +159,38 @@ test('the walk hands S9 real modes and times, and S8 real directory names', func
         @unlink($manifest);
     }
 });
+
+test('the walk reads big files whole, in memory and past the 8 MB read, and hashes a .zip against the list', function () {
+    $root = sys_get_temp_dir() . '/sentinel-' . bin2hex(random_bytes(4));
+    $manifest = $root . '.manifest';
+    $loader = sentinel_fixture('bad/loader-wholefile.js.txt');
+    $pad = str_repeat("function f(a){return a+1};\n", 1000);
+    $zip = "PK\x03\x04 a restore.zip of some later build";
+    $files = array(
+        'wp-content/themes/example/js/fontawesome-all.min.js' => str_repeat($pad, 140) . $loader,   // ~3.7 MB, read into memory
+        'wp-content/themes/example/js/huge.min.js'            => str_repeat($pad, 340) . $loader,   // ~9 MB, read by seeking
+        'wp-content/themes/example/js/huge-middle.min.js'     => str_repeat($pad, 170) . $loader . str_repeat($pad, 170),
+        'wp-content/themes/example/js/clean-big.min.js'       => str_repeat($pad, 60),
+        'wp-content/plugins/perf-assist/backup/archive.zip'     => $zip,
+    );
+    foreach ($files as $rel => $bytes) {
+        if (!is_dir(dirname("{$root}/{$rel}"))) { mkdir(dirname("{$root}/{$rel}"), 0777, true); }
+        file_put_contents("{$root}/{$rel}", $bytes);
+    }
+    $dir = dirname(__DIR__, 2) . '/signatures';
+    $sig = new Sky_Sentinel_Signatures(array('hashes' => array(hash('sha256', $zip) => 'restore.zip, later build')), Sky_Sentinel_Signatures::read_json("{$dir}/iocs.json"), Sky_Sentinel_Signatures::read_json("{$dir}/allowlist.json"));
+    try {
+        $r = (new Sky_Sentinel_Scanner($root, $sig))->scan_all($manifest);
+        $keys = array_map(fn($f) => $f->detector . ' ' . $f->subject, $r['findings']);
+        expect($keys)->toContain('F10 wp-content/themes/example/js/fontawesome-all.min.js')
+            ->toContain('F10 wp-content/themes/example/js/huge.min.js')
+            ->toContain('F10 wp-content/themes/example/js/huge-middle.min.js')
+            ->toContain('F1 wp-content/plugins/perf-assist/backup/archive.zip');
+        foreach ($r['findings'] as $f) {
+            expect($f->subject)->not->toContain('clean-big');
+        }
+    } finally {
+        sentinel_rm($root);
+        @unlink($manifest);
+    }
+});

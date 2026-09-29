@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-24",
+  "version": "2026-09-29",
   "source": "published indicators for the EtherHiding / ClickFix campaign family targeting WordPress: decoded loader payloads, observed infrastructure, tooling fingerprints; Wordfence, Inside a Malicious, Stealthy WordPress Must Use Plugin (2026-09)",
   "contracts": [
     "0xB6bC9e1D",
@@ -24,7 +24,12 @@
     "sc_spread_interval",
     "sc_payload_persistent",
     "sc_plugin_rules",
-    "adminsCookies"
+    "adminsCookies",
+    "sh-71ef8c05",
+    "wpHealthSample",
+    "getDemoPage",
+    "hasDemoPage",
+    "nc-blob:"
   ],
   "rpc_hosts": [
     "1rpc.io/matic",
@@ -47,12 +52,23 @@
     "165.231.182.138",
     "158.173.21.18",
     "138.199.59.139",
-    "192.42.116.49"
+    "192.42.116.49",
+    "156.146.55.187",
+    "172.94.26.134",
+    "212.32.50.234",
+    "181.41.202.105",
+    "181.41.206.178",
+    "158.173.21.157"
   ],
   "tooling_user_agents": [
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/18.0 Safari/605.1.15",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0"
+  ],
+  "plugin_dirs": [
+    "wp-security-helper",
+    "site-helper-b0a4d4920f57",
+    "site-helper-bdcd2b1a9ff2"
   ],
   "_note": "Plaintext indicators only. Sentinel matches these as strings and never contacts any of these hosts."
 }

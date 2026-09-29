@@ -2,7 +2,7 @@
 <h2>When an alert fires</h2>
 <ol style="max-width:800px;font-size:14px;line-height:1.7">
 	<li><strong>Do not delete anything yet.</strong> Open the finding on the Findings tab. The evidence copy is in the data directory with a <code>.quarantined</code> suffix; download it before anything else. Deleting first destroys the only record of what was there.</li>
-	<li><strong>CRITICAL file finding</strong> (F1, F2, F10, F11, F13, S2, S4, S5): take the site offline at the edge (host maintenance mode or a CDN rule). Find every copy of the loader: the file named, plus every <code>.js</code> and every theme <code>functions.php</code> that S6 reports changed. Remove the loaders first, then the droppers and decoy packages, then any plugin that can re-install them (F16). Purge every cache layer. Fetch the home page as a visitor and confirm the loader is gone from what the browser receives.</li>
+	<li><strong>CRITICAL file finding</strong> (F1, F2, F10, F11, F13, S2, S4, S5, S10, D11): take the site offline at the edge (host maintenance mode or a CDN rule). Find every copy of the loader: the file named, plus every <code>.js</code> and every theme <code>functions.php</code> that S6 reports changed. Remove the loaders first, then the droppers and decoy packages, then any plugin that can re-install them (F16). Purge every cache layer. Fetch the home page as a visitor and confirm the loader is gone from what the browser receives.</li>
 	<li><strong>CRITICAL account or session finding</strong> (D4, D5, D6, D9, L1, L2): this campaign operates with valid administrator credentials. Reset the affected account's password, rotate the salts in <code>wp-config.php</code> so every session dies, delete every pending signup, and review each administrator's <code>session_tokens</code>. Then step 2, because a credential that was used was used for something.</li>
 	<li><strong>HIGH plugin or package finding</strong> (L3, S7, F16): read the plugin's main file before deciding. A self-healing plugin keeps a zip of itself and a state file; remove all three together or it comes back.</li>
 	<li><strong>Any finding</strong>: purge every cache and CDN, re-fetch the rendered pages, and run whatever browser-based sweep you trust in addition to Sentinel.</li>
@@ -22,7 +22,7 @@
 <h2>What the detector ids mean</h2>
 <table class="widefat striped" style="max-width:900px"><tbody>
 	<tr><th>F1</th><td>SHA-256 in the known-bad list</td></tr>
-	<tr><th>F2, F3, F4, F6</th><td>The dropper family: shared decoder alphabet, HTML-comment prelude, one POST key + temp dir + include, marker file</td></tr>
+	<tr><th>F2, F3, F4, F6</th><td>The dropper family: shared decoder alphabet, HTML-comment prelude, one request key ($_POST, $_REQUEST or $_COOKIE) + temp dir + include, marker file</td></tr>
 	<tr><th>F5</th><td>Write-then-include (MEDIUM; some security plugins and libraries do this legitimately)</td></tr>
 	<tr><th>F7, F8</th><td>Admin-hider and self-hiding plugins</td></tr>
 	<tr><th>F9, F10, F11, F12, F13</th><td>The EtherHiding loader: decode-and-run shape, decoder structure, campaign indicators, on-chain resolver calls, inline echo from a theme hook</td></tr>
@@ -35,13 +35,17 @@
 	<tr><th>F21</th><td>A spreader: walks server roots looking for other installs' mu-plugins</td></tr>
 	<tr><th>F22</th><td>Collects payment credentials from wp-config.php, .env, .git/config or WooCommerce gateway settings</td></tr>
 	<tr><th>F23</th><td>Writes active_plugins with raw SQL, bypassing activation</td></tr>
+	<tr><th>F24</th><td>PHP that includes an image file: code hidden in a picture</td></tr>
 	<tr><th>S1, S2</th><td>Plant-naming (word-unixtime) and decoy packages</td></tr>
 	<tr><th>S3, S4, S5</th><td>PHP in uploads/cache/languages; a media file whose bytes are a zip or PHP; dropper dotfiles</td></tr>
 	<tr><th>S6, S7</th><td>Files and packages that differ from the signed baseline</td></tr>
 	<tr><th>S8</th><td>A plugin or theme directory named like a PHP file (the spreader's fallback)</td></tr>
 	<tr><th>S9</th><td>PHP locked read-only (0444), on the load path or backdated</td></tr>
+	<tr><th>S10</th><td>A plugin or theme directory named like a campaign plugin: an exact name from the indicator list (CRITICAL) or site-helper's &lt;word&gt;-&lt;12 hex&gt; (HIGH)</td></tr>
 	<tr><th>D1 to D7</th><td>Options (including PHP stored as an option), content, signups, administrator set, hidden users (by count_users() and by a real user query), hidden plugins, activation changes</td></tr>
 	<tr><th>D10</th><td>An administrator named like the rogue account (admin_/adm_/administrator_/backup_ + 6)</td></tr>
+	<tr><th>D11</th><td>A campaign plugin (by the same names as S10) active on a site or network-wide; needs no baseline</td></tr>
+	<tr><th>L1, D8</th><td>An administrator login or live session from Tor, outside the allow-list, or from the same /24 as a known attacker address (HIGH); from the address itself or with the tooling user-agent, L1 is CRITICAL and D9 fires</td></tr>
 	<tr><th>L2</th><td>Someone became an administrator, or an administrator's password was set outside the lost-password flow</td></tr>
 	<tr><th>L8</th><td>The baseline itself does not verify, or Sentinel's own files changed</td></tr>
 	<tr><th>L9</th><td>A mu-plugin or drop-in is new or changed since the baseline (checked every minute)</td></tr>

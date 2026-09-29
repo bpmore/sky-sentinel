@@ -172,3 +172,8 @@ test('L6: a logged-in user, a write, and other routes are never enumeration', fu
         ->and(Sky_Sentinel_Live_Rules::is_enumeration(false, 'GET', '/wp/v2/usersettings', true))->toBeFalse()
         ->and(Sky_Sentinel_Live_Rules::is_enumeration(false, 'GET', '/myplugin/v1/wp/v2/users', true))->toBeFalse();
 });
+
+test('L1: an administrator from the same network as an attacker address is HIGH', function () {
+    $f = sentinel_rules()->login('alice', true, '194.165.17.200', 'Mozilla', array('194.165.17.0/24'), false);
+    expect($f->detector)->toBe('L1')->and($f->severity)->toBe('high')->and($f->summary)->toContain('same network as a known attacker');
+});

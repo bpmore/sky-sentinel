@@ -22,6 +22,13 @@ final class Sky_Sentinel_FS_Checks {
 	 */
 	public const NAMED_LIKE_A_PLANT = '/(?:^|\/)([A-Za-z][A-Za-z0-9]*(?:[-_.][A-Za-z0-9]+)*?[-_.]1[6-9]\d{8})(?:\.php)?\/?$/';
 
+	/**
+	 * S10: site-helper's naming, <word>-<12 hex>: site-helper-b0a4d4920f57 and
+	 * site-helper-bdcd2b1a9ff2 in two builds seen on real installs. The
+	 * hex must mix letters and digits, so a 12-digit date is not a match.
+	 */
+	public const NAMED_LIKE_SITE_HELPER = '/^[a-z][a-z0-9]*(?:-[a-z0-9]+)*?-((?=[0-9a-f]*[a-f])(?=[0-9a-f]*\d)[0-9a-f]{12})$/';
+
 	/** S3: directories where PHP has no business being. */
 	public const NO_PHP_HERE = array( 'uploads/', 'blogs.dir/', 'languages/', 'cache/', 'upgrade/', 'upgrade-temp-backup/' );
 
@@ -72,11 +79,15 @@ final class Sky_Sentinel_FS_Checks {
 		if ( in_array( $ext, array( 'php', 'phtml', 'php5', 'php7', 'phar' ), true ) ) {
 			foreach ( self::NO_PHP_HERE as $dir ) {
 				if ( str_starts_with( strtolower( $wc ), $dir ) ) {
-					if ( $this->sig->allowed( 's3_php_in_datastore', $rel_path ) ) {
+					if ( $this->sig->allowed( 's3_php_in_datastore', $rel_path ) || $this->sig->allowed( 's3_php_in_datastore', self::single_site_uploads( $rel_path ) ) ) {
 						$f( 'S3', 'info', "PHP inside {$dir} (allow-listed datastore)" );
 					} elseif ( 'index.php' === strtolower( $base ) && $size <= 64 ) {
 						// "Silence is golden" guards. Not flagged at all: 205k of
 						// them is noise nobody reads and then nobody reads the list.
+					} elseif ( 0 === $size ) {
+						// Empty: nothing to run. WP All Export leaves a 0-byte
+						// functions.php in each site's uploads. Once anything is
+						// written into it, the next walk sees a size and says so.
 					} else {
 						$f( 'S3', 'high', "PHP file inside {$dir}" );
 					}
@@ -160,6 +171,12 @@ final class Sky_Sentinel_FS_Checks {
 			$twin = in_array( strtolower( basename( $rel_dir ) ), array_map( 'strtolower', $entries ), true );
 			$out[] = new Sky_Sentinel_Finding( 'S8', 'critical', $rel_dir, $twin ? 'Package directory named like a PHP file, holding a file of the same name: the mu-plugin spreader\'s fallback' : 'Package directory named like a PHP file', array( 'twin' => $twin ) );
 		}
+		// S10: a package named like one of the campaign's plugins, by its
+		// exact name from iocs.json or by site-helper's naming.
+		$why = self::campaign_package_name( basename( $rel_dir ), $this->sig->plugin_dirs() );
+		if ( null !== $why ) {
+			$out[] = new Sky_Sentinel_Finding( 'S10', $why[0], $rel_dir, $why[1] );
+		}
 		if ( ! preg_match( self::NAMED_LIKE_A_PLANT, $rel_dir, $m ) ) {
 			return $out;
 		}
@@ -172,6 +189,34 @@ final class Sky_Sentinel_FS_Checks {
 			$out[] = new Sky_Sentinel_Finding( 'S1', 'high', $rel_dir, 'Directory named <word>-<unix time>, the campaign plant naming', array( 'name' => $m[1], 'planted_at' => self::epoch_of( $m[1] ) ) );
 		}
 		return $out;
+	}
+
+	/**
+	 * A multisite upload path as the allow-list writes it: uploads/sites/6/
+	 * and blogs.dir/6/files/ both become uploads/. The Sucuri datastore
+	 * entry "uploads/sucuri/" matched only the main site's, and every other
+	 * site's copy was a HIGH: eight of them on one real multisite.
+	 */
+	public static function single_site_uploads( string $rel_path ): string {
+		return (string) preg_replace( '#(^|/)(?:uploads/sites/\d+|blogs\.dir/\d+/files)/#i', '$1uploads/', str_replace( '\\', '/', $rel_path ) );
+	}
+
+	/**
+	 * Is this plugin or theme directory name one the campaign uses? Shared by
+	 * S10 (the directory on disk) and D11 (the name in active_plugins).
+	 *
+	 * @param string[] $known Exact names from iocs.json plugin_dirs.
+	 * @return array{0:string,1:string}|null Severity and reason.
+	 */
+	public static function campaign_package_name( string $dir, array $known ): ?array {
+		$dir = strtolower( trim( $dir, '/' ) );
+		if ( in_array( $dir, $known, true ) ) {
+			return array( 'critical', 'Named like a known campaign plugin' );
+		}
+		if ( preg_match( self::NAMED_LIKE_SITE_HELPER, $dir ) ) {
+			return array( 'high', 'Named <word>-<12 hex>, the site-helper plugin\'s naming' );
+		}
+		return null;
 	}
 
 	/**

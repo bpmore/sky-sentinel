@@ -54,3 +54,21 @@ test('the client IP behind Cloudflare and nginx', function () {
         ->and(Sky_Sentinel_Network::client_ip(array('REMOTE_ADDR' => '10.0.0.1', 'HTTP_CF_CONNECTING_IP' => 'not an ip')))->toBe('10.0.0.1')
         ->and(Sky_Sentinel_Network::client_ip(array()))->toBe('');
 });
+
+test('the same /24 as a listed attacker address is attacker_net, below the exact address and the tooling UA', function () {
+    // A real return visit: 158.173.21.157 with 158.173.21.18 on the list.
+    $net = new Sky_Sentinel_Network(array('158.173.21.18', '203.0.113.0/28', '2001:db8:1:2::9'), sentinel_signatures()->tooling_user_agents(), array('10.30.0.0/16'), array('158.173.21.200'));
+    expect($net->classify('158.173.21.18', 'x'))->toBe('attacker_ip')
+        ->and($net->classify('158.173.21.157', 'x'))->toBe('attacker_net')
+        ->and($net->classify('158.173.21.157', sentinel_signatures()->tooling_user_agents()[0]))->toBe('tooling_ua')
+        // Ahead of Tor: the surer claim wins.
+        ->and($net->classify('158.173.21.200', 'x'))->toBe('attacker_net')
+        ->and($net->classify('158.173.22.157', 'x'))->toBe('outside_allowed')
+        // A listed range matches inside it and only inside it.
+        ->and($net->classify('203.0.113.9', 'x'))->toBe('attacker_net')
+        ->and($net->classify('203.0.113.99', 'x'))->toBe('outside_allowed')
+        // IPv6 by /64.
+        ->and($net->classify('2001:db8:1:2::77', 'x'))->toBe('attacker_net')
+        ->and($net->classify('2001:db8:1:3::77', 'x'))->toBe('outside_allowed')
+        ->and($net->classify('', 'x'))->toBe('ok');
+});

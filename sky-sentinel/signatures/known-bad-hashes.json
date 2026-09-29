@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-16",
+  "version": "2026-09-29",
   "source": "sha256 of artifacts observed in this campaign family; add your own from any confirmed incident",
   "hashes": {
     "61fb226317c9c0065c76a0ead1ee72cd2375b0e2c1d16717255b51178d1dcabf": "dropper A (elem / XOR 67 / .holder)",
@@ -10,7 +10,15 @@
     "83694609b19f684e13082e1673c768c89e11e75b586c7c54df1a2d29ac9fd897": "site-helper-b0a4d4920f57.php",
     "2a03b48c86cc9f1a94eccfcc669c9c25b094754cb132d9dcdc94ec9cb52669bc": "main.js (whole-file loader)",
     "7e6cba37dca78b3712f030e728d40995e1ec6d9fe822d08eb90e4768b8b4ff80": "home-slider.js (infected)",
-    "f830f3861b34969562f2b76a5b26dc8d81699021fbae7b95acf5188dc992031d": "twentyseventeen/functions.php (infected)"
+    "f830f3861b34969562f2b76a5b26dc8d81699021fbae7b95acf5188dc992031d": "twentyseventeen/functions.php (infected)",
+    "a8d41d855b8e4b2a89053f445ef16f241ee16c381de732ea3c3627ee1aef5e2e": "site-helper-bdcd2b1a9ff2.php (\"Performance Lab Helper\")",
+    "247ae8cfaecd0ba8e80e38d11618cd4e6d3464287fc21c3cf8e928f38758c5bd": "site-helper-bdcd2b1a9ff2 restore.zip, also a disguised .jpg in uploads",
+    "b0e1981387aef9224e05ad0aca16053deacd1c17007c0c6adc53ef93f574289e": "site-helper health-probe.js (Base-chain runtime)",
+    "94de253ba981170bbd0cd9e9c360e5050ef7d4119f299b3ff1e428c7b8b329f6": "site-helper ethers.min.js (loader appended)",
+    "6ee95752614cea630e30ac71dcbd7220c312f3d541f4c32fcdde481c600b2a82": "dropper D (record / $_REQUEST / XOR 93 / .mrk)",
+    "50bd87843b854b15e91eec2e30f10f9363801754ebfceb9f4a891bc9395b6126": "theme fontawesome-all.min.js (loader appended)",
+    "d2e87f44b058c62b731ad195afa652f9b0c6f5da020fb811807e7f198b9e486f": "theme fontawesome-v4-shims.min.js (loader appended)",
+    "b4271b0bfe615780169662a17a79ce4f4cda2fb9346d77a1a9b9bc5152a8d8ae": "child theme functions.php (loader echoed from wp_footer)"
   },
   "known_clean": {
     "68eda93a2a4c853817e352f0b48b81400660907ab6a88cbbcbefb6937736226e": "home-slider.js (clean)",

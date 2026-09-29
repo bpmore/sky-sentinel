@@ -234,3 +234,38 @@ test('S1: version numbers, dates and hashes are not plant names', function () {
     }
     expect($fs->check_package_dir('wp-content/plugins/woocommerce-gateway-stripe', array('woocommerce-gateway-stripe.php')))->toBe(array());
 });
+
+test('S3: a datastore allow-listed as uploads/sucuri/ is INFO on every network site too', function () {
+    // One real multisite: eight HIGHs, one per Sucuri file on site 6, under
+    // both multisite layouts.
+    $fs = sentinel_fs();
+    foreach (array('wp-content/uploads/sucuri/sucuri-lastlogins.php', 'wp-content/uploads/sites/6/sucuri/sucuri-lastlogins.php', 'wp-content/blogs.dir/6/files/sucuri/sucuri-lastlogins.php') as $p) {
+        $f = $fs->check_file($p, 500, '<?php exit(0); ?>');
+        expect($f)->toHaveCount(1)->and($f[0]->severity)->toBe('info');
+    }
+    // Only the multisite prefix is folded: an unlisted folder on site 6 is still HIGH.
+    expect($fs->check_file('wp-content/uploads/sites/6/other/x.php', 500, '<?php')[0]->severity)->toBe('high');
+});
+
+test('S10: a package named like the campaign plugins, by exact name or by site-helper naming', function () {
+    $fs = sentinel_fs();
+    $by = function (string $dir) use ($fs) {
+        $f = array_values(array_filter($fs->check_package_dir($dir, array('x.php')), fn($x) => 'S10' === $x->detector));
+        return $f ? $f[0]->severity : null;
+    };
+    expect($by('wp-content/plugins/wp-security-helper'))->toBe('critical')
+        ->and($by('wp-content/plugins/site-helper-bdcd2b1a9ff2'))->toBe('critical')
+        ->and($by('wp-content/plugins/perf-assist-9c1e77a0b2d4'))->toBe('high')
+        // Twelve digits is a date, twelve letters is a word: both needed.
+        ->and($by('wp-content/plugins/backup-202609281234'))->toBeNull()
+        ->and($by('wp-content/plugins/tools-deadbeefcafe'))->toBeNull()
+        ->and($by('wp-content/plugins/akismet'))->toBeNull()
+        ->and($by('wp-content/themes/twentytwentyfive'))->toBeNull();
+});
+
+test('S3: an empty PHP file has nothing to run and is not flagged; one byte more is HIGH', function () {
+    // WP All Export's 0-byte functions.php in blogs.dir/25/files/wpallexport/.
+    $fs = sentinel_fs();
+    expect($fs->check_file('wp-content/blogs.dir/25/files/wpallexport/functions.php', 0, ''))->toBe(array())
+        ->and($fs->check_file('wp-content/blogs.dir/25/files/wpallexport/functions.php', 30, '<?php eval($_POST["x"]);')[0]->severity)->toBe('high');
+});

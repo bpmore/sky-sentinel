@@ -18,8 +18,22 @@
  */
 final class Sky_Sentinel_Content_Detectors {
 
-	/** Files bigger than this are never read for content; S3/S4 still see them. */
+	/**
+	 * The most of a file any detector sees at once. A bigger file is read
+	 * whole, in pieces of this size that overlap by CHUNK_OVERLAP
+	 * (scan_chunked()). Until 0.4.7 bigger files were skipped, and this
+	 * campaign appends its loader to big library files: a 3.7 MB
+	 * fontawesome-all.min.js in one real install, which no detector read.
+	 * 0.4.7 read only the first and last MB.
+	 */
 	public const MAX_BYTES = 1048576;
+
+	/**
+	 * How much consecutive pieces share. The loader is ~10 KB and F10 looks
+	 * 16 KB past its start, so anything this size or smaller lies whole in
+	 * at least one piece, wherever it sits.
+	 */
+	public const CHUNK_OVERLAP = 65536;
 
 	/** Extensions whose content is read outside uploads/. */
 	public const CONTENT_EXTENSIONS = array( 'php', 'phtml', 'inc', 'js', 'html', 'htm', 'json', 'txt', 'svg', 'css' );
@@ -81,13 +95,20 @@ final class Sky_Sentinel_Content_Detectors {
 			$f( 'F3', 'high', 'File opens with an HTML comment tag immediately before <?php', array( 'tag' => $m[0] ) );
 		}
 
-		// F4: one POST key + a temp-dir probe + include of a variable. The
-		// dropper's whole job in three features.
-		$post_keys = self::post_keys( $bytes );
-		$temp      = (bool) preg_match( self::TEMP_PROBE, $bytes );
-		$inc_var   = (bool) preg_match( self::INCLUDE_VAR, $bytes );
-		if ( 1 === count( $post_keys ) && $temp && $inc_var ) {
-			$f( 'F4', 'high', 'Reads one $_POST key, probes a temp directory, and includes a variable', array( 'post_key' => $post_keys[0] ) );
+		// F4: one request key + a temp-dir probe + include of a variable. The
+		// dropper's whole job in three features. The key may be read from
+		// $_POST, $_REQUEST or $_COOKIE, by literal or by variable:
+		// a 2026-09 dropper build reads $_REQUEST[$value], which the
+		// $_POST-literal rule never saw, so with the alphabet reordered and
+		// the comment tag dropped it fell to F5 alone, MEDIUM, the digest.
+		// Not $_GET: a page cache reads one ?page= and includes its template
+		// from beside a temp-dir path, and a dropper's payload is too long
+		// for a URL anyway.
+		$keys    = self::request_keys( $bytes );
+		$temp    = (bool) preg_match( self::TEMP_PROBE, $bytes );
+		$inc_var = (bool) preg_match( self::INCLUDE_VAR, $bytes );
+		if ( 1 === count( $keys ) && $temp && $inc_var ) {
+			$f( 'F4', 'high', "Reads one request key ({$keys[0]}), probes a temp directory, and includes a variable", array( 'request_key' => $keys[0] ) );
 		}
 
 		// F5: write-then-include. Real software does this too (Wordfence's
@@ -119,13 +140,12 @@ final class Sky_Sentinel_Content_Detectors {
 
 		// F9: the EtherHiding loader's decode-and-run shape, in ANY file type
 		// outside uploads/. Same three calls in home-slider.js, main.js and the
-		// inline script echoed from functions.php.
-		$f9 = false;
-		if ( ! $in_uploads && str_contains( $bytes, 'atob(' ) && str_contains( $bytes, 'new Function(' )
-			&& ( str_contains( $bytes, 'fromCharCode' ) || str_contains( $bytes, 'charCodeAt' ) )
-			&& ! $this->sig->allowed( 'f9_loader_structure', $rel_path ) ) {
-			$f9 = true;
-		}
+		// inline script echoed from functions.php, always within ~8 KB of one
+		// another. Anywhere in the file was the rule until 0.4.8; a bundle has
+		// all three by chance: Formidable Pro's dropzone.min.js (dropzone
+		// 5.9.3) holds them 80 KB apart, MailPoet's editor bundle 800 KB.
+		$f9 = ! $in_uploads && self::f9_calls_near( $bytes, self::F9_SPAN )
+			&& ! $this->sig->allowed( 'f9_loader_structure', $rel_path );
 
 		// F10: the loader's structure. Variable names rotate between builds;
 		// the numeric array, the XOR loop and the run-once flag do not.
@@ -243,6 +263,16 @@ final class Sky_Sentinel_Content_Detectors {
 			$f( 'F17', 'medium', "Obfuscation call in a theme entry file: {$m[1]}(", array( 'call' => $m[1] ) );
 		}
 
+		// F24: PHP that includes a picture. Code hidden in a .gif or .jpg
+		// passes any look at uploads/ that trusts the extension, then runs
+		// through a one-line include somewhere else. One compromised install
+		// still had a logo.php that was a short open tag and
+		// include('/home/<user>/bin/start.gif') and nothing else.
+		if ( in_array( $ext, array( 'php', 'phtml', 'inc' ), true )
+			&& preg_match( '/\b(?:include|include_once|require|require_once)\s*\(?\s*[\'"]([^\'"\n]+\.(?:gif|jpe?g|png|webp|bmp|ico))[\'"]/i', $bytes, $m ) ) {
+			$f( 'F24', 'high', "Includes an image file as PHP: {$m[1]}", array( 'included' => $m[1] ) );
+		}
+
 		// F18 to F23: the self-healing mu-plugin in Wordfence's September 2026
 		// write-up. Its hook names, option keys and paths are cipher-encoded,
 		// so these match what the cipher leaves in the clear: magic constants,
@@ -254,6 +284,95 @@ final class Sky_Sentinel_Content_Detectors {
 		}
 
 		return $out;
+	}
+
+	/**
+	 * Any size of content already in memory: scan() when it fits, in pieces
+	 * when it does not. The page check hands whole response bodies here; it
+	 * used to keep the first MAX_BYTES and drop the rest.
+	 *
+	 * @return Sky_Sentinel_Finding[]
+	 */
+	public function scan_any( string $rel_path, string $bytes ): array {
+		$size = strlen( $bytes );
+		if ( $size <= self::MAX_BYTES ) {
+			return $this->scan( $rel_path, $bytes );
+		}
+		return $this->scan_chunked( $rel_path, fn( int $offset, int $length ) => substr( $bytes, $offset, $length ), $size, hash( 'sha256', $bytes ) );
+	}
+
+	/**
+	 * A file too big to read at once, read whole in pieces of MAX_BYTES that
+	 * overlap by CHUNK_OVERLAP. Memory stays at one piece. Appending is how
+	 * the loader gets into a library file, but a File Manager edit can put
+	 * it anywhere, so every byte is read.
+	 *
+	 * Findings carry the whole file's sha256, so F1 matches the file and the
+	 * fingerprint changes when the file does. A detector that fires in more
+	 * than one piece is reported once, from the first. F10's offset is made
+	 * absolute.
+	 *
+	 * What this cannot see: a match that needs two features more than
+	 * MAX_BYTES - CHUNK_OVERLAP apart. None of the loader's do.
+	 *
+	 * @param callable(int,int):string $read   Bytes at an offset, at most a length.
+	 * @param string                   $sha    sha256 of the whole file.
+	 * @return Sky_Sentinel_Finding[]
+	 */
+	public function scan_chunked( string $rel_path, callable $read, int $size, string $sha ): array {
+		$rel_path = str_replace( '\\', '/', $rel_path );
+		$out      = array();
+		$seen     = array();
+		if ( null !== ( $name = $this->sig->known_bad( $sha ) ) ) {
+			$out[] = new Sky_Sentinel_Finding( 'F1', 'critical', $rel_path, "SHA-256 matches a known artifact: {$name}", array( 'known_as' => $name ), $sha );
+			$seen['F1'] = true;
+		}
+		$step = self::MAX_BYTES - self::CHUNK_OVERLAP;
+		for ( $start = 0; $start < $size; $start += $step ) {
+			$bytes = (string) $read( $start, self::MAX_BYTES );
+			if ( '' === $bytes ) {
+				break;
+			}
+			foreach ( $this->scan( $rel_path, $bytes ) as $f ) {
+				if ( isset( $seen[ $f->detector ] ) ) {
+					continue;
+				}
+				$seen[ $f->detector ] = true;
+				$summary = $f->summary;
+				$detail  = $f->detail + array( 'window' => 'bytes ' . $start . ' to ' . ( $start + strlen( $bytes ) ) . " of {$size}" );
+				if ( 'F10' === $f->detector && isset( $detail['offset'] ) ) {
+					$detail['offset']   = $start + (int) $detail['offset'];
+					$detail['appended'] = $detail['offset'] > 256;
+					$summary            = $detail['appended'] ? 'Loader structure appended to a longer file' : 'Loader structure';
+				}
+				$out[] = new Sky_Sentinel_Finding( $f->detector, $f->severity, $rel_path, $summary, $detail, $sha );
+			}
+			if ( $start + strlen( $bytes ) >= $size ) {
+				break;
+			}
+		}
+		return $out;
+	}
+
+	/** How close F9's three calls must be. The loader spans ~8 KB. */
+	public const F9_SPAN = 32768;
+
+	/** atob(, new Function( and fromCharCode/charCodeAt, all within $span bytes of one another. */
+	public static function f9_calls_near( string $bytes, int $span ): bool {
+		$at = array();
+		foreach ( array( 'atob' => '/atob\(/', 'fn' => '/new Function\(/', 'cc' => '/fromCharCode|charCodeAt/' ) as $k => $re ) {
+			if ( ! preg_match_all( $re, $bytes, $m, PREG_OFFSET_CAPTURE ) ) {
+				return false;
+			}
+			$at[ $k ] = array_column( $m[0], 1 );
+		}
+		foreach ( $at['fn'] as $fn ) {
+			$near = fn( array $list ) => (bool) array_filter( $list, fn( $o ) => abs( $o - $fn ) <= $span );
+			if ( $near( $at['atob'] ) && $near( $at['cc'] ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	/**
@@ -361,12 +480,19 @@ final class Sky_Sentinel_Content_Detectors {
 		return $out;
 	}
 
-	/** Distinct $_POST keys read by string literal. */
-	private static function post_keys( string $bytes ): array {
-		if ( ! preg_match_all( '/\$_POST\s*\[\s*[\'"]([^\'"]+)[\'"]\s*\]/', $bytes, $m ) ) {
+	/**
+	 * Distinct request keys, as written: $_POST['elem'], $_REQUEST[$value].
+	 * A key held in a variable counts as one key per variable name.
+	 */
+	private static function request_keys( string $bytes ): array {
+		if ( ! preg_match_all( '/\$_(POST|REQUEST|COOKIE)\s*\[\s*(?:[\'"]([^\'"]+)[\'"]|(\$\w+))\s*\]/', $bytes, $m, PREG_SET_ORDER ) ) {
 			return array();
 		}
-		return array_values( array_unique( $m[1] ) );
+		$keys = array();
+		foreach ( $m as $k ) {
+			$keys[] = '$_' . $k[1] . '[' . ( '' !== ( $k[3] ?? '' ) ? $k[3] : "'{$k[2]}'" ) . ']';
+		}
+		return array_values( array_unique( $keys ) );
 	}
 
 	/**

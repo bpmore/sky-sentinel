@@ -77,3 +77,14 @@ test('D8 subject is the /24, so three Private Relay addresses are one finding', 
     expect($f)->toHaveCount(3)->and($fps)->toHaveCount(1);
 });
 
+
+test('D8: a live session from the same network as an attacker address is HIGH', function () {
+    $db = new Sentinel_Fake_DB();
+    $db->answers = array('/session_tokens/' => array(
+        array('user_login' => 'alice', 'meta_value' => sentinel_session_blob(array(
+            array('expiration' => 2_000_000_000, 'ip' => '194.165.17.0', 'ua' => 'Mozilla/5.0', 'login' => 1_700_000_000),
+        ))),
+    ));
+    $f = (new Sky_Sentinel_Session_Checks($db, sentinel_net(array())))->run(array('alice'), 1_800_000_000);
+    expect($f)->toHaveCount(1)->and($f[0]->detector)->toBe('D8')->and($f[0]->severity)->toBe('high');
+});

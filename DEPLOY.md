@@ -57,6 +57,16 @@ says so. Warn whoever reads the alerts first.
 6. Re-sign the baseline.
 7. Resolve the upgrade's L8 and L9 findings.
 
+### 0.4.6 to 0.4.8
+
+The steps above. Expect L8 on the signature files as well as the code. The
+first scan reads every file over 1 MB for the first time: read any new F9,
+F10 or F11 on one before acknowledging it. Any S10 or D11 is a campaign
+plugin by name: follow the runbook. Resolve open S3 HIGHs on allow-listed
+datastores under `uploads/sites/<n>/` or `blogs.dir/<n>/files/`, on an empty
+`functions.php`, and open F9 HIGHs on a bundled library: none of them come
+back.
+
 ### 0.3.0 to 0.4.6
 
 The steps above, plus: delete `sky-sentinel-config.sample.php` from

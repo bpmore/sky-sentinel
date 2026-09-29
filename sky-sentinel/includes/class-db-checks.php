@@ -80,6 +80,9 @@ final class Sky_Sentinel_DB_Checks {
 		foreach ( $this->d10_rogue_logins() as $f ) {
 			$out[] = $f;
 		}
+		foreach ( $this->d11_campaign_plugins_active() as $f ) {
+			$out[] = $f;
+		}
 		if ( null !== $baseline_inventory ) {
 			foreach ( $this->d4_admin_set( $baseline_inventory ) as $f ) {
 				$out[] = $f;
@@ -327,6 +330,34 @@ final class Sky_Sentinel_DB_Checks {
 		$out  = array();
 		foreach ( array_diff( $disk, $api ) as $basename ) {
 			$out[] = new Sky_Sentinel_Finding( 'D6', 'critical', "plugin:{$basename}", 'Plugin exists on disk but is missing from get_plugins(): something is filtering all_plugins' );
+		}
+		return $out;
+	}
+
+	// D11: a campaign plugin, by name, in any blog's active_plugins or in
+	// active_sitewide_plugins. Needs no baseline. D7 only reports what was
+	// activated since one, and a baseline signed after the break-in would
+	// hold these as normal: on one compromised multisite the main site had
+	// both site-helper-bdcd2b1a9ff2 and wp-security-helper active.
+	private function d11_campaign_plugins_active(): array {
+		$out   = array();
+		$known = $this->sig->plugin_dirs();
+		$check = function ( string $plugin, string $where, int $blog_id ) use ( &$out, $known ) {
+			$dir = str_contains( $plugin, '/' ) ? strstr( $plugin, '/', true ) : preg_replace( '/\.php$/i', '', $plugin );
+			$why = Sky_Sentinel_FS_Checks::campaign_package_name( (string) $dir, $known );
+			if ( null !== $why ) {
+				$out[] = new Sky_Sentinel_Finding( 'D11', $why[0], "plugin:{$plugin}", "Active {$where}: {$why[1]}", array( 'plugin' => $plugin ), null, $blog_id );
+			}
+		};
+		if ( $this->multisite ) {
+			foreach ( array_keys( $this->unserialize_map( $this->sitemeta( 'active_sitewide_plugins' ) ) ) as $pl ) {
+				$check( (string) $pl, 'network-wide', 0 );
+			}
+		}
+		foreach ( $this->blog_ids as $blog_id ) {
+			foreach ( $this->unserialize_list( $this->option( $this->prefix_for( $blog_id ), 'active_plugins' ) ) as $pl ) {
+				$check( (string) $pl, "on blog {$blog_id}", (int) $blog_id );
+			}
 		}
 		return $out;
 	}

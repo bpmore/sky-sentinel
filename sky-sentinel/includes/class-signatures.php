@@ -70,6 +70,9 @@ final class Sky_Sentinel_Signatures {
 						return "missing the \"{$k}\" list";
 					}
 				}
+				if ( isset( $decoded['plugin_dirs'] ) && ! is_array( $decoded['plugin_dirs'] ) ) {
+					return '"plugin_dirs" is not a list';
+				}
 				foreach ( (array) ( $decoded['contract_regex'] ?? array() ) as $re ) {
 					// The @ does not silence PCRE's compile warning under a test
 					// harness that turns warnings into failures; a handler does.
@@ -142,6 +145,11 @@ final class Sky_Sentinel_Signatures {
 	/** @return string[] */
 	public function attacker_ips(): array {
 		return $this->iocs['attacker_ips'] ?? array();
+	}
+
+	/** @return string[] Plugin directory names the campaign has used, lower-case. */
+	public function plugin_dirs(): array {
+		return array_values( array_filter( array_map( fn( $d ) => strtolower( trim( (string) $d ) ), (array) ( $this->iocs['plugin_dirs'] ?? array() ) ) ) );
 	}
 
 	/** @return string[] */

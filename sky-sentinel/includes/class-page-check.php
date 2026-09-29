@@ -18,7 +18,6 @@
 final class Sky_Sentinel_Page_Check {
 
 	public const MAX_SCRIPTS = 25;
-	public const MAX_BYTES   = 1048576;
 
 	private Sky_Sentinel_Content_Detectors $content;
 	private Sky_Sentinel_Signatures $sig;
@@ -96,7 +95,7 @@ final class Sky_Sentinel_Page_Check {
 			if ( $extra ) {
 				$findings[] = new Sky_Sentinel_Finding( 'P4', 'high', "page:{$label}", 'The cached copy loads scripts the fresh page does not: ' . implode( ', ', array_slice( $extra, 0, 5 ) ), array( 'cached_only' => array_values( $extra ) ), null, $blog_id );
 			}
-			foreach ( $this->content->scan( "page/{$label}/cached.html", $cached['body'] ) as $f ) {
+			foreach ( $this->content->scan_any( "page/{$label}/cached.html", $cached['body'] ) as $f ) {
 				if ( in_array( $f->detector, array( 'F9', 'F10', 'F11', 'F12', 'F14', 'F15' ), true ) ) {
 					$findings[] = new Sky_Sentinel_Finding( 'P1', $f->severity, "page:{$label}:cached", "Cached page: {$f->summary}", $f->detail, $f->sha256, $blog_id );
 				}
@@ -121,7 +120,7 @@ final class Sky_Sentinel_Page_Check {
 				continue;
 			}
 			$path = (string) parse_url( $src, PHP_URL_PATH );
-			foreach ( $this->content->scan( 'served' . $path, $js['body'] ) as $f ) {
+			foreach ( $this->content->scan_any( 'served' . $path, $js['body'] ) as $f ) {
 				if ( in_array( $f->detector, array( 'F9', 'F10', 'F11', 'F12', 'F14', 'F15' ), true ) ) {
 					$findings[] = new Sky_Sentinel_Finding( 'P2', $f->severity, "script:{$path}", "Served script: {$f->summary}", $f->detail, $f->sha256, $blog_id );
 				}
@@ -144,7 +143,7 @@ final class Sky_Sentinel_Page_Check {
 		$findings  = array();
 		$inventory = self::script_inventory( $html, $url );
 
-		foreach ( $this->content->scan( "page/{$label}.html", $html ) as $f ) {
+		foreach ( $this->content->scan_any( "page/{$label}.html", $html ) as $f ) {
 			if ( in_array( $f->detector, array( 'F9', 'F10', 'F11', 'F12', 'F14', 'F15' ), true ) ) {
 				$findings[] = new Sky_Sentinel_Finding( 'P1', $f->severity, "page:{$label}", "Rendered page: {$f->summary}", $f->detail, $f->sha256, $blog_id );
 			}
@@ -224,7 +223,9 @@ final class Sky_Sentinel_Page_Check {
 		if ( ! is_array( $r ) || ( $r['code'] ?? 0 ) < 200 || ( $r['code'] ?? 0 ) >= 400 || ! is_string( $r['body'] ?? null ) ) {
 			return null;
 		}
-		$r['body']    = substr( $r['body'], 0, self::MAX_BYTES );
+		// The whole body: scan_any() reads a big one as its first and last
+		// MB. Until 0.4.7 this kept the first MB only, and the loader is
+		// appended at the end.
 		$r['headers'] = (array) ( $r['headers'] ?? array() );
 		return $r;
 	}

@@ -268,3 +268,22 @@ test('stores_php() wants PHP at the very start, not a mention of it', function (
         ->and(Sky_Sentinel_DB_Checks::stores_php('Put <?php at the top'))->toBeFalse()
         ->and(Sky_Sentinel_DB_Checks::stores_php('<?phpx'))->toBeFalse();
 });
+
+test('D11: a campaign plugin active on a blog or network-wide is found with no baseline', function () {
+    // One real multisite's main site: both active, and D7 needs a baseline
+    // from before the break-in to see either.
+    $db = sentinel_clean_db();
+    $db->answers = array(
+        '/option_name = \'active_plugins\'/' => 'a:3:{i:0;s:53:"site-helper-bdcd2b1a9ff2/site-helper-bdcd2b1a9ff2.php";i:1;s:19:"akismet/akismet.php";i:2;s:41:"wp-security-helper/wp-security-helper.php";}',
+        '/meta_key = \'active_sitewide_plugins\'/' => 'a:2:{s:19:"akismet/akismet.php";i:1;s:42:"perf-assist-9c1e77a0b2d4/perf-assist.php";i:1;}',
+    ) + $db->answers;
+    $f = array_values(array_filter(sentinel_db_checks($db)->run(null), fn($x) => 'D11' === $x->detector));
+    $by = array();
+    foreach ($f as $x) { $by[$x->subject] = $x->severity; }
+    ksort($by);
+    expect($by)->toBe(array(
+        'plugin:perf-assist-9c1e77a0b2d4/perf-assist.php' => 'high',
+        'plugin:site-helper-bdcd2b1a9ff2/site-helper-bdcd2b1a9ff2.php' => 'critical',
+        'plugin:wp-security-helper/wp-security-helper.php' => 'critical',
+    ));
+});

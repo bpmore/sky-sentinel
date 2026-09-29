@@ -16,12 +16,17 @@ final class Sky_Sentinel_Network {
 
 	public const ATTACKER_IP     = 'attacker_ip';
 	public const TOOLING_UA      = 'tooling_ua';
+	public const ATTACKER_NET    = 'attacker_net';
 	public const TOR_EXIT        = 'tor_exit';
 	public const OUTSIDE_ALLOWED = 'outside_allowed';
 	public const OK              = 'ok';
 
 	/** @var string[] */
 	private array $attacker_ips;
+	/** @var array<string,true> The /24 (or /64) of every listed address. */
+	private array $attacker_nets = array();
+	/** @var string[] CIDRs listed in attacker_ips as ranges. */
+	private array $attacker_cidrs = array();
 	/** @var string[] */
 	private array $tooling_uas;
 	/** @var string[] CIDRs */
@@ -31,6 +36,13 @@ final class Sky_Sentinel_Network {
 
 	public function __construct( array $attacker_ips, array $tooling_uas, array $allowed_cidrs, array $tor_exits = array() ) {
 		$this->attacker_ips = array_map( 'trim', $attacker_ips );
+		foreach ( $this->attacker_ips as $a ) {
+			if ( str_contains( $a, '/' ) ) {
+				$this->attacker_cidrs[] = $a;
+			} elseif ( false !== @inet_pton( $a ) ) {
+				$this->attacker_nets[ self::prefix_of( $a ) ] = true;
+			}
+		}
 		$this->tooling_uas  = array_map( 'trim', $tooling_uas );
 		$this->allowed      = array_map( 'trim', $allowed_cidrs );
 		$this->tor          = array_fill_keys( array_map( 'trim', $tor_exits ), true );
@@ -42,6 +54,12 @@ final class Sky_Sentinel_Network {
 	 * inside it). An allow-list that exists and does not contain the IP is
 	 * OUTSIDE_ALLOWED, which is HIGH rather than CRITICAL: a new home ISP is
 	 * a one-time notice, not an incident.
+	 *
+	 * ATTACKER_NET is the same /24 (IPv6: /64) as a listed address, or inside
+	 * a range listed as a CIDR. In one real intrusion the attacker came back
+	 * from 158.173.21.157 with 158.173.21.18 on the list, and the site's
+	 * login-history plugin recorded addresses only as their /24. A VPN's /24 is shared by
+	 * strangers, so it ranks below the exact address and the tooling UA.
 	 */
 	public function classify( string $ip, string $ua ): string {
 		$ip = trim( $ip );
@@ -52,6 +70,9 @@ final class Sky_Sentinel_Network {
 		if ( '' !== $ua && in_array( $ua, $this->tooling_uas, true ) ) {
 			return self::TOOLING_UA;
 		}
+		if ( $this->in_attacker_net( $ip ) ) {
+			return self::ATTACKER_NET;
+		}
 		if ( isset( $this->tor[ $ip ] ) ) {
 			return self::TOR_EXIT;
 		}
@@ -59,6 +80,21 @@ final class Sky_Sentinel_Network {
 			return self::OUTSIDE_ALLOWED;
 		}
 		return self::OK;
+	}
+
+	public function in_attacker_net( string $ip ): bool {
+		if ( '' === $ip || false === @inet_pton( $ip ) ) {
+			return false;
+		}
+		if ( isset( $this->attacker_nets[ self::prefix_of( $ip ) ] ) ) {
+			return true;
+		}
+		foreach ( $this->attacker_cidrs as $cidr ) {
+			if ( self::in_cidr( $ip, $cidr ) ) {
+				return true;
+			}
+		}
+		return false;
 	}
 
 	public function allowed( string $ip ): bool {

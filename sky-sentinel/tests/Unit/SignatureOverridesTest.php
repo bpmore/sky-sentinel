@@ -39,3 +39,10 @@ test('the shipped files pass their own validation', function () {
         expect(Sky_Sentinel_Signatures::validate_override($key, Sky_Sentinel_Signatures::read_json($dir . '/' . $file)))->toBeNull($file);
     }
 });
+
+test('plugin_dirs is optional in iocs, and must be a list when present', function () {
+    $base = array('version' => 'x', 'strings' => array(), 'rpc_hosts' => array(), 'attacker_ips' => array(), 'tooling_user_agents' => array());
+    expect(Sky_Sentinel_Signatures::validate_override('iocs', $base + array('plugin_dirs' => 'wp-security-helper')))->toContain('plugin_dirs')
+        ->and(Sky_Sentinel_Signatures::validate_override('iocs', $base + array('plugin_dirs' => array('wp-security-helper'))))->toBeNull()
+        ->and(sentinel_signatures()->plugin_dirs())->toContain('site-helper-bdcd2b1a9ff2');
+});

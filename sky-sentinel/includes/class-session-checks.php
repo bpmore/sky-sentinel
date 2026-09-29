@@ -59,6 +59,8 @@ final class Sky_Sentinel_Session_Checks {
 				return new Sky_Sentinel_Finding( 'D9', 'critical', $subject, "Live session for {$login} from a known attacker address {$s['ip']}", $detail );
 			case Sky_Sentinel_Network::TOOLING_UA:
 				return new Sky_Sentinel_Finding( 'D9', 'critical', $subject, "Live session for {$login} with the campaign's tooling user-agent", $detail );
+			case Sky_Sentinel_Network::ATTACKER_NET:
+				return new Sky_Sentinel_Finding( 'D8', 'high', $subject, "Live session for {$login} from {$s['ip']}, in the same network as a known attacker address", $detail );
 			case Sky_Sentinel_Network::TOR_EXIT:
 				return new Sky_Sentinel_Finding( 'D8', 'high', $subject, "Live session for {$login} from a Tor exit {$s['ip']}", $detail );
 			case Sky_Sentinel_Network::OUTSIDE_ALLOWED:

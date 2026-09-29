@@ -410,3 +410,118 @@ test('F10: the array must start near the opening, and an IIFE with no XOR in rea
     $far = "(function(){ var n=0; var t=[{$nums}]; " . str_repeat('n++; ', 4200) . " return t[n^1]; })();";
     expect(Sky_Sentinel_Content_Detectors::loader_structure($far))->toBeNull();
 });
+
+// ---- 0.4.7, from a second real compromised install ----------------------
+
+test('F4 reads the key from $_REQUEST through a variable: the dropper with a new alphabet and no prelude is still HIGH', function () {
+    $f = sentinel_scan('bad/dropper-request-var.php.txt', 'wp-content/exports/report-data.php');
+    $f4 = array_values(array_filter($f, fn($x) => 'F4' === $x->detector));
+    // Before 0.4.7 this file was F5 alone: MEDIUM, the next morning's digest.
+    expect(sentinel_ids($f))->not->toContain('F2')->not->toContain('F3')
+        ->and($f4)->toHaveCount(1)
+        ->and($f4[0]->severity)->toBe('high')
+        ->and($f4[0]->detail['request_key'])->toBe('$_REQUEST[$value]');
+});
+
+test('F4 does not count $_GET: a page cache reading one ?page= beside a temp dir and an include is clean', function () {
+    expect(sentinel_ids(sentinel_scan('clean/one-get-key-cache.php.txt', 'wp-content/plugins/cache/list.php')))->not->toContain('F4');
+});
+
+test('F24: PHP that includes a picture is HIGH; including templates and printing an img tag is not', function () {
+    $f = sentinel_scan('bad/image-include.php.txt', 'wp-content/logs/newsletter/logo.php');
+    expect(sentinel_ids($f))->toBe(array('F24'))
+        ->and($f[0]->severity)->toBe('high')
+        ->and($f[0]->detail['included'])->toBe('/home/example/bin/start.gif');
+    expect(sentinel_ids(sentinel_scan('clean/template-include.php.txt', 'wp-content/themes/x/header.php')))->not->toContain('F24');
+});
+
+test('F11 knows the Base-chain runtime by its contract ABI and blob prefix', function () {
+    $js = "var c=new ethers.Contract(t,['function getDemoPage() view returns (string,string)'],p);if(x.slice(0,8)==='nc-blob:')go();";
+    expect(sentinel_ids((new Sky_Sentinel_Content_Detectors(sentinel_signatures()))->scan('wp-content/plugins/p/a.js', $js)))->toContain('F11');
+});
+
+test('F11 does not fire on the service-worker kill switch that clears nc-eth and ncblob', function () {
+    // A cleanup's own kill-switch worker names the attacker's caches to
+    // clear them. Those names must not be indicators.
+    $js = "const bad=/^nc[:_-]|^__nc|nochain/i; // caches named nc-eth and ncblob\nself.registration.unregister();";
+    expect(sentinel_ids((new Sky_Sentinel_Content_Detectors(sentinel_signatures()))->scan('nochain-sw.js', $js)))->not->toContain('F11');
+});
+
+/** A megabyte-plus of bundle that has none of the loader's parts. */
+function sentinel_big_bundle(int $bytes = 1_300_000): string {
+    $line = "function f(a,b){return a.map(function(c){return c+b})};\n";
+    return str_repeat($line, intdiv($bytes, strlen($line)) + 1);
+}
+
+test('a file over MAX_BYTES is read whole: a loader appended to 1.3 MB is CRITICAL at its real offset', function () {
+    $loader = sentinel_fixture('bad/loader-wholefile.js.txt');
+    $bundle = sentinel_big_bundle();
+    $bytes  = $bundle . $loader;
+    $f = (new Sky_Sentinel_Content_Detectors(sentinel_signatures()))->scan_any('wp-content/themes/example/js/fontawesome-all.min.js', $bytes);
+    $f10 = array_values(array_filter($f, fn($x) => 'F10' === $x->detector));
+    expect($f10)->toHaveCount(1)
+        ->and($f10[0]->severity)->toBe('critical')
+        ->and($f10[0]->detail['appended'])->toBeTrue()
+        ->and($f10[0]->detail['offset'])->toBe(strlen($bundle) + Sky_Sentinel_Content_Detectors::loader_structure($loader)['offset'])
+        // The whole file's hash, so F1 and the fingerprint follow the file.
+        ->and($f10[0]->sha256)->toBe(hash('sha256', $bytes));
+});
+
+test('a big file is read at the start too, and a detector firing in more than one piece is reported once', function () {
+    $loader = sentinel_fixture('bad/loader-wholefile.js.txt');
+    $f = (new Sky_Sentinel_Content_Detectors(sentinel_signatures()))->scan_any('wp-content/plugins/x/big.js', $loader . sentinel_big_bundle() . $loader);
+    expect(array_count_values(array_map(fn($x) => $x->detector, $f))['F10'])->toBe(1);
+    $f = (new Sky_Sentinel_Content_Detectors(sentinel_signatures()))->scan_any('wp-content/plugins/x/big.js', $loader . sentinel_big_bundle(2_500_000));
+    expect(sentinel_ids($f))->toContain('F10');
+});
+
+test('F1 matches a big file by its whole hash', function () {
+    $bytes = sentinel_big_bundle();
+    $sig = new Sky_Sentinel_Signatures(array('hashes' => array(hash('sha256', $bytes) => 'big infected bundle')), array(), array());
+    $f = (new Sky_Sentinel_Content_Detectors($sig))->scan_any('wp-content/x.js', $bytes);
+    expect(sentinel_ids($f))->toBe(array('F1'));
+});
+
+test('F9 needs its three calls close together: a big bundle holding them 800 KB apart is clean', function () {
+    // MailPoet's newsletter_editor.js, 1.4 MB.
+    $pad = str_repeat("x=1;\n", 80_000);
+    $far = 'var a=atob(s);' . $pad . 'String.fromCharCode(1);' . $pad . 'var g=new Function("return this")();' . $pad;
+    $near = $pad . $pad . $pad . 'var a=atob(s),c=String.fromCharCode(1);(new Function(c))();';
+    $d = new Sky_Sentinel_Content_Detectors(sentinel_signatures());
+    expect(strlen($far))->toBeGreaterThan(Sky_Sentinel_Content_Detectors::MAX_BYTES)
+        ->and(sentinel_ids($d->scan_any('wp-content/plugins/mailpoet/editor.js', $far)))->not->toContain('F9')
+        ->and(sentinel_ids($d->scan_any('wp-content/plugins/mailpoet/editor.js', $near)))->toContain('F9');
+});
+
+test('F9 needs them close in a small file too: dropzone 5.9.3, as Formidable Pro ships it, is clean', function () {
+    // dropzone.min.js, 115 KB: fromCharCode at ~29 KB (punycode), new
+    // Function("return this") at ~66 KB (core-js), atob at ~109 KB
+    // (dataURItoBlob). HIGH until 0.4.8.
+    $pad = fn(int $n) => str_repeat('a.b=c;', intdiv($n, 6));
+    $dropzone = $pad(29_000) . 'a=String.fromCharCode,' . $pad(36_000) . 'try{return this||new Function("return this")()}catch(e){}' . $pad(43_000) . 'var t=atob(e.split(",")[1]);' . $pad(5_000);
+    $d = new Sky_Sentinel_Content_Detectors(sentinel_signatures());
+    expect(strlen($dropzone))->toBeLessThan(Sky_Sentinel_Content_Detectors::MAX_BYTES)
+        ->and(sentinel_ids($d->scan('wp-content/plugins/formidable-pro/js/dropzone.min.js', $dropzone)))->not->toContain('F9')
+        // The same three calls within the loader's span still fire, at the edge of it.
+        ->and(sentinel_ids($d->scan('wp-content/plugins/x/a.js', 'atob(a);' . str_repeat(' ', Sky_Sentinel_Content_Detectors::F9_SPAN - 20) . 'new Function(b);fromCharCode(1)')))->toContain('F9')
+        ->and(sentinel_ids($d->scan('wp-content/plugins/x/a.js', 'atob(a);' . str_repeat(' ', Sky_Sentinel_Content_Detectors::F9_SPAN + 20) . 'new Function(b);fromCharCode(1)')))->not->toContain('F9');
+});
+
+test('a loader in the MIDDLE of a big file is found, and so is one that crosses a piece boundary', function () {
+    // 0.4.7 read only the first and last MB; a File Manager edit can put
+    // the loader anywhere.
+    $loader = sentinel_fixture('bad/loader-wholefile.js.txt');
+    $d = new Sky_Sentinel_Content_Detectors(sentinel_signatures());
+    $middle = sentinel_big_bundle(1_500_000) . $loader . sentinel_big_bundle(1_500_000);
+    $f10 = array_values(array_filter($d->scan_any('wp-content/plugins/x/big.js', $middle), fn($x) => 'F10' === $x->detector));
+    expect($f10)->toHaveCount(1)
+        ->and($f10[0]->detail['offset'])->toBe(strlen(sentinel_big_bundle(1_500_000)) + Sky_Sentinel_Content_Detectors::loader_structure($loader)['offset']);
+    // A loader of the real length (~8 KB) starting 3 KB before the end of
+    // the first piece: cut in two there, whole in the second piece, which
+    // begins CHUNK_OVERLAP earlier. With no overlap neither piece holds it.
+    $long = sentinel_long_loader();
+    $pad = str_repeat(' ', Sky_Sentinel_Content_Detectors::MAX_BYTES - 3000);
+    $straddle = $pad . $long . sentinel_big_bundle(1_500_000);
+    expect(strlen($long))->toBeGreaterThan(6000);
+    expect(sentinel_ids($d->scan_any('wp-content/plugins/x/big.js', $straddle)))->toContain('F10');
+});

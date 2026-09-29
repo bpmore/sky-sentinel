@@ -19,7 +19,7 @@ installs by FTP and is driven from wp-admin.
 
 **Every six hours**, a chunked file walk that fits inside a one-minute cron:
 
-- Twenty-three content detectors (F1 to F23): the known-bad hash list, the
+- Twenty-four content detectors (F1 to F24): the known-bad hash list, the
   dropper family by decoder alphabet and structure, the admin-hider by its
   option names and hooks, the loader by its decode-and-run shape and its
   decoder structure (variable names rotate; the numeric array and XOR do
@@ -29,19 +29,22 @@ installs by FTP and is driven from wp-admin.
   family Wordfence documented in September 2026, a file that rewrites,
   backdates and locks itself, a substitution-cipher string decoder,
   hex-escaped SQL, a spreader walking server roots, payment-credential
-  harvesting, and raw-SQL self-reactivation.
-- Nine file-system checks (S1 to S9): plant naming, decoy packages, PHP under
+  harvesting, and raw-SQL self-reactivation; and PHP that includes an image
+  file. Files over 1 MB are read whole, in overlapping 1 MB pieces, because
+  the loader is appended to big library files.
+- Ten file-system checks (S1 to S10): plant naming, decoy packages, PHP under
   `uploads/` and `cache/`, media files whose bytes are a zip or PHP, dropper
   dotfiles, a plugin directory named like a PHP file, read-only and backdated
-  PHP, and every file and package that differs from a **signed baseline**.
-- Ten database checks (D1 to D10): options and content carrying a loader or
+  PHP, a directory named like a campaign plugin, and every file and package
+  that differs from a **signed baseline**.
+- Eleven database checks (D1 to D11): options and content carrying a loader or
   storing a PHP file, the mu-plugin family's option names, pending
   administrator signups, the administrator set against the baseline, hidden
   users (by `count_users()` and by a real `WP_User_Query`) and hidden plugins
   (raw SQL against what the WordPress API admits to; the mismatch is the
   finding), activation changes, every administrator's live sessions
-  classified by origin, and administrators named like the family's rogue
-  account.
+  classified by origin, administrators named like the family's rogue
+  account, and a campaign plugin active anywhere, with no baseline needed.
 
 **Every hour**, the rendered-page check: each live site's home and login page
 fetched as a visitor, fresh and through the cache, plus every same-origin
@@ -51,7 +54,7 @@ database, widget, object cache, page cache, CDN. Archived, deactivated and
 spam network sites are skipped here (only here), and the Dashboard names them.
 
 **As they happen**, the live hooks (L1 to L13): an administrator logging in
-from a known attacker address, a Tor exit, the campaign's tooling browser, or
+from a known attacker address or its /24, a Tor exit, the campaign's tooling browser, or
 a network never seen before; anyone made an administrator by any route, or an
 administrator's password set outside the lost-password flow; a plugin or
 theme uploaded, activated or switched; the built-in file editor; a
@@ -78,7 +81,10 @@ pinned as tests. In 0.4 they were also scored file by file against a real
 infected backup (kept private): every confirmed artifact but one plain-text
 readme was flagged, with no HIGH or CRITICAL false positive, and the cleaned
 copy came back clean. That run found three bugs no reconstructed fixture
-could, now fixed and pinned. `bin/scan.php` is how you do the same on your own
+could, now fixed and pinned. In 0.4.8 a second real backup (a multisite,
+also private) was scored against a file-by-file integrity check: 0.4.6 had
+missed one of its ten infected files, a loader appended to a 3.7 MB
+script; 0.4.8 finds all ten, with no HIGH or CRITICAL false positive. `bin/scan.php` is how you do the same on your own
 copy. The detectors for the Wordfence-documented mu-plugin family are built
 from that write-up; no sample of it was available to test against.
 
@@ -113,7 +119,7 @@ and L9 CRITICAL on purpose. `DEPLOY.md` has the steps.
 
     cd sky-sentinel && composer install && ./vendor/bin/pest
 
-179 tests, no WordPress needed: every decision is in a class with no
+200 tests, no WordPress needed: every decision is in a class with no
 WordPress in it. Each guarding clause was mutation-tested (put the bug back,
 watch the test fail).
 

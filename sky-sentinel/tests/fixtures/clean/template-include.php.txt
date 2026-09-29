@@ -1,0 +1,5 @@
+<?php
+/* An ordinary theme: includes PHP templates by literal path and prints an image tag. */
+include get_template_directory() . '/parts/header.php';
+require_once 'inc/helpers.php';
+echo '<img src="' . esc_url( get_template_directory_uri() . '/images/logo.gif' ) . '" alt="">';

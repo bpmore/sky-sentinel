@@ -137,3 +137,14 @@ test('hidden from search engines or marked mature is still a live site, and is s
 test('a single-site install has no flags at all, and is checked', function () {
     expect(Sky_Sentinel_Page_Check::skip_reason((object) array('blog_id' => 1)))->toBeNull();
 });
+
+test('a served script over a megabyte is read whole: a loader in the middle of one is P2', function () {
+    // Until 0.4.7 the body was cut to its first MB, and a loader appended
+    // at 3.7 MB in a real install was never seen.
+    $big = str_repeat("function f(a){return a+1};\n", 60_000) . sentinel_fixture('bad/loader-wholefile.js.txt') . str_repeat("function g(a){return a-1};\n", 60_000);
+    $html = '<script src="https://site.test/js/fontawesome-all.min.js"></script>';
+    $r = sentinel_pages(array('https://site.test/js/' => array(200, $big), 'https://site.test/' => array(200, $html)))->check('https://site.test/', 'site:home', null, null);
+    expect(strlen($big))->toBeGreaterThan(Sky_Sentinel_Content_Detectors::MAX_BYTES)
+        ->and(sentinel_ids($r['findings']))->toBe(array('P2'))
+        ->and($r['findings'][0]->severity)->toBe('critical');
+});

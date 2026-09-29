@@ -16,8 +16,8 @@
  * the baseline diff.
  *
  * What is read: outside uploads/, every file's sha256 goes in the manifest,
- * and files under MAX_BYTES with a content extension get the content
- * detectors. Inside uploads/, only the first 16 bytes are read (S3/S4), and
+ * and every file with a content extension gets the content detectors, a
+ * file over MAX_BYTES in overlapping pieces. Inside uploads/, only the first 16 bytes are read (S3/S4), and
  * nothing is hashed: tens of gigabytes of pictures are not something to
  * sha256 every six hours, and what this campaign puts there is a disguised
  * zip, which four bytes finds.
@@ -137,7 +137,8 @@ final class Sky_Sentinel_Scanner {
 
 				$head = null;
 				$bytes = null;
-				$wants_content = ! $in_uploads && $size <= Sky_Sentinel_Content_Detectors::MAX_BYTES
+				$sha   = '';
+				$wants_content = ! $in_uploads
 					&& ! self::is_self( $child_rel )
 					&& ( in_array( $ext, Sky_Sentinel_Content_Detectors::CONTENT_EXTENSIONS, true ) || '' === $ext || str_starts_with( $name, '.' ) );
 
@@ -166,11 +167,31 @@ final class Sky_Sentinel_Scanner {
 				foreach ( $this->fs->check_file( $child_rel, $size, $head, $stat ? (int) $stat['mode'] : null, $stat ? (int) $stat['mtime'] : null, $stat ? (int) $stat['ctime'] : null ) as $f ) {
 					$findings[] = $f;
 				}
-				if ( $wants_content && is_string( $bytes ) ) {
+				if ( $wants_content && $size > Sky_Sentinel_Content_Detectors::MAX_BYTES && '' !== $sha ) {
+					// Too big to read at once: the whole file, a piece at a time.
+					$h = is_string( $bytes ) ? null : @fopen( $child_abs, 'rb' );
+					if ( is_string( $bytes ) || false !== $h ) {
+						$read = is_string( $bytes )
+							? fn( int $offset, int $length ) => substr( $bytes, $offset, $length )
+							: fn( int $offset, int $length ) => 0 === fseek( $h, $offset ) ? (string) fread( $h, $length ) : '';
+						$state['content_read']++;
+						foreach ( $this->content->scan_chunked( $child_rel, $read, $size, $sha ) as $f ) {
+							$findings[] = $f;
+						}
+						if ( $h ) {
+							fclose( $h );
+						}
+					}
+				} elseif ( $wants_content && is_string( $bytes ) ) {
 					$state['content_read']++;
 					foreach ( $this->content->scan( $child_rel, $bytes ) as $f ) {
 						$findings[] = $f;
 					}
+				} elseif ( ! $in_uploads && '' !== $sha && null !== ( $known = $this->sig->known_bad( $sha ) ) ) {
+					// F1 for what no content detector reads: a .zip, a binary.
+					// The hash list has named site-helper's restore.zip since
+					// 0.3.0 and, until 0.4.7, nothing ever compared it.
+					$findings[] = new Sky_Sentinel_Finding( 'F1', 'critical', $child_rel, "SHA-256 matches a known artifact: {$known}", array( 'known_as' => $known ), $sha );
 				}
 			}
 		}

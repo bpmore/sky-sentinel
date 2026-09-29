@@ -234,3 +234,66 @@ be re-registered by a stranger, whom Sentinel then fetches every hour while
 waiting out timeouts the live sites needed the time for. A holding site's
 data is exactly what is being kept, one click from being unarchived, so
 every other check keeps covering it.
+
+---
+
+## Big files are read whole, in overlapping pieces
+
+**Decision.** A file over 1 MB is read start to end in 1 MB pieces that
+overlap by 64 KB, each through the same detectors; the walk seeks through a
+file on disk and the page check slices the body it holds. A detector that
+fires in several pieces is reported once, with the offset in the file.
+
+**Why.** Earlier versions never read content past 1 MB, and a real
+infected backup had the loader appended to a 3.7 MB
+`fontawesome-all.min.js`. Reading only the two ends would catch that one,
+but the campaign edits files through a file manager and can put the loader
+anywhere. Spliced into the middle of the clean file, the real loader is
+found at its exact offset. Memory stays at one piece; few files are that big.
+
+**The overlap.** Pieces must share more than the longest thing a detector
+needs whole: the loader (~10 KB) and F10's 16 KB look past its start. 64 KB
+is four times that. A test places a full-length loader across a piece
+boundary; with no overlap it is missed.
+
+**Rejected.** *Raising the cap.* It moves the edge instead of removing it.
+
+---
+
+## F9 needs its three calls close together
+
+**Decision.** F9 fires only when `atob(`, `new Function(` and
+`fromCharCode`/`charCodeAt` all sit within 32 KB of one another.
+
+**Why.** Every real loader keeps them within ~8 KB. A bundled library has
+all three by chance: dropzone 5.9.3 holds them 80 KB apart, a 1.4 MB
+newsletter-editor bundle 800 KB. An allow-list entry would excuse one
+library by name and leave the next to be found the same way.
+
+---
+
+## An attacker's /24 is HIGH, not CRITICAL
+
+**Decision.** A login or live session from the same /24 (IPv6 /64) as a
+listed attacker address, or inside a CIDR listed in `attacker_ips`, is
+HIGH. The exact address and the tooling user-agent stay CRITICAL.
+
+**Why.** In a real intrusion the attacker came back from the /24 of a
+listed address, and the site's login-history plugin recorded only /24s
+anyway. But these are commercial VPN and Tor ranges, shared with strangers.
+HIGH still alerts at once. A new, ordinary browser user-agent seen in the
+same intrusion is not listed: every Windows user would match it.
+
+---
+
+## Campaign plugins are found by name, with no baseline
+
+**Decision.** S10 flags a plugin or theme directory named like a campaign
+plugin (exact names in `iocs.json` `plugin_dirs`, or site-helper's
+`<word>-<12 hex>`); D11 flags one active on any site or network-wide.
+
+**Why.** D7 reports what was activated since the baseline, and a baseline
+signed after a break-in holds the campaign's plugins as normal. On a real
+multisite both were active on the main site. The hex rule needs letters and
+digits, so a 12-digit date is not a match.
+
