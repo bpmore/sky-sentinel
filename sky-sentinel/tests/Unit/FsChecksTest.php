@@ -349,3 +349,27 @@ test('S4: a web page under a picture\'s name is MEDIUM when it carries nothing, 
     // PHP under a picture's name is CRITICAL whatever it says.
     expect($fs->check_file('wp-content/uploads/a.jpg', 20, '<?php echo 1;', null, null, null, '<?php echo 1;')[0]->severity)->toBe('critical');
 });
+
+test('S4: markup that starts with any tag is a web page, so a <div> lure under a picture\'s name is CRITICAL', function () {
+    // Until 0.4.11 only <!DOCTYPE, <html and <script counted; a lure
+    // fragment opening with <div> was not an S4 at all.
+    $fs = sentinel_fs();
+    $lure = sentinel_fixture('bad/clickfix-lure.html.txt');
+    expect(str_starts_with($lure, '<div'))->toBeTrue();
+    $f = $fs->check_file('wp-content/uploads/2026/09/verify.jpg', strlen($lure), substr($lure, 0, 256), null, null, null, $lure);
+    expect($f)->toHaveCount(1)->and($f[0]->severity)->toBe('critical')->and($f[0]->detail['carries'])->toContain('F14');
+    // With a byte-order mark and blank lines first, too.
+    $bom = "\xEF\xBB\xBF\n\n" . $lure;
+    expect($fs->check_file('wp-content/uploads/2026/09/verify.png', strlen($bom), substr($bom, 0, 256), null, null, null, $bom)[0]->severity)->toBe('critical');
+    // An HTML table saved as .xls carries nothing: MEDIUM.
+    $xls = "<table><tr><td>Name</td><td>Dept</td></tr></table>";
+    expect($fs->check_file('wp-content/uploads/2019/01/roster.xls', strlen($xls), $xls, null, null, null, $xls)[0]->severity)->toBe('medium');
+    // Real formats never start with "<": nothing.
+    foreach (array("\xFF\xD8\xFF\xE0", "\x89PNG\r\n", 'GIF89a', '%PDF-1.7', "RIFF\x00\x00WEBP", "\xD0\xCF\x11\xE0") as $magic) {
+        expect($fs->check_file('wp-content/uploads/x.jpg', 100, $magic . str_repeat('x', 50)))->toBe(array());
+    }
+    // A text file that merely mentions a tag is not markup.
+    expect($fs->check_file('wp-content/uploads/x.pdf', 100, 'notes: use <div> here'))->toBe(array())
+        // "< " and "<3" are not tags.
+        ->and($fs->check_file('wp-content/uploads/x.doc', 100, '< 5 items'))->toBe(array());
+});

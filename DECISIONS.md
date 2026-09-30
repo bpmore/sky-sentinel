@@ -330,6 +330,27 @@ should be: a 404 page, a login page, a saved copy of the site. Every one was
 a CRITICAL. A web page in uploads is dangerous for what it carries, and the
 content detectors are what know that.
 
-**Limits.** S4 sees HTML only when the file starts with `<!DOCTYPE`, `<html`
-or `<script`; a fragment starting `<div` is not an S4 at all.
+**Limits.** S4 saw HTML only when the file started with `<!DOCTYPE`,
+`<html` or `<script` (0.4.11: any tag).
 
+---
+
+## `hasDemoPage` is an indicator only as a call; any tag is markup to S4
+
+**Decision.** The F11 string is `hasDemoPage(`, not `hasDemoPage`. S4 treats
+any media file that opens with a tag as markup.
+
+**Why.** The people removing a campaign name its artifacts in order to
+find them. On real sites a page-level kill switch (inline on home pages,
+and in two sites' theme header scripts) and an uploads scanner's backdoor
+regex all listed the bare word, and the kill switch raised CRITICAL on
+every page check. None had `hasDemoPage(`; the runtime has it in its ABI
+and its call. And every format S4 covers has a binary signature; none
+begins with `<`.
+
+**Rejected.** *Dropping the word altogether*: the contract's function
+names are the campaign's own. *Allow-listing the cleanup by hash*: it
+changes per page and an allow-listed block is a place to hide.
+
+**Limits.** A loader that reaches the function only as `["hasDemoPage"]`
+would not match; its `getDemoPage` ABI and contract addresses would.

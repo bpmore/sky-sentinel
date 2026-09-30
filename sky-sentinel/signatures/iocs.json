@@ -1,5 +1,5 @@
 {
-  "version": "2026-09-29",
+  "version": "2026-09-30",
   "source": "published indicators for the EtherHiding / ClickFix campaign family targeting WordPress: decoded loader payloads, observed infrastructure, tooling fingerprints; Wordfence, Inside a Malicious, Stealthy WordPress Must Use Plugin (2026-09)",
   "contracts": [
     "0xB6bC9e1D",
@@ -28,7 +28,7 @@
     "sh-71ef8c05",
     "wpHealthSample",
     "getDemoPage",
-    "hasDemoPage",
+    "hasDemoPage(",
     "nc-blob:"
   ],
   "rpc_hosts": [

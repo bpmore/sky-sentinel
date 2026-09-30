@@ -57,6 +57,12 @@ says so. Warn whoever reads the alerts first.
 6. Re-sign the baseline.
 7. Resolve the upgrade's L8 and L9 findings.
 
+### 0.4.10 to 0.4.11
+
+The steps above. On 0.4.8 to 0.4.10, resolve any open F11, D1 or P1
+finding whose only indicator is `hasDemoPage`: it is a cleanup script
+naming the runtime, and it does not come back.
+
 ### 0.4.9 to 0.4.10
 
 The steps above, then resolve open S4 CRITICALs on web pages saved under a

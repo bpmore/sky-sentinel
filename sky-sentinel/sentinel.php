@@ -29,7 +29,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 final class Sky_Sentinel {
 
-	public const VERSION   = '0.4.10';
+	public const VERSION   = '0.4.11';
 	public const SCAN_HOOK   = 'sky_sentinel_scan';
 	public const TICK_HOOK   = 'sky_sentinel_tick';
 	public const PAGES_HOOK  = 'sky_sentinel_pages';

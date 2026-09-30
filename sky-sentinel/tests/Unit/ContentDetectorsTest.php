@@ -435,9 +435,21 @@ test('F24: PHP that includes a picture is HIGH; including templates and printing
     expect(sentinel_ids(sentinel_scan('clean/template-include.php.txt', 'wp-content/themes/x/header.php')))->not->toContain('F24');
 });
 
-test('F11 knows the Base-chain runtime by its contract ABI and blob prefix', function () {
-    $js = "var c=new ethers.Contract(t,['function getDemoPage() view returns (string,string)'],p);if(x.slice(0,8)==='nc-blob:')go();";
-    expect(sentinel_ids((new Sky_Sentinel_Content_Detectors(sentinel_signatures()))->scan('wp-content/plugins/p/a.js', $js)))->toContain('F11');
+test('F11 knows the Base-chain runtime by its contract ABI and by its blob prefix, each alone', function () {
+    $d = new Sky_Sentinel_Content_Detectors(sentinel_signatures());
+    expect(sentinel_ids($d->scan('wp-content/plugins/p/a.js', "var c=new ethers.Contract(t,['function getDemoPage() view returns (string,string)'],p);")))->toContain('F11')
+        ->and(sentinel_ids($d->scan('wp-content/plugins/p/a.js', "if(x.slice(0,8)==='nc-blob:')go();")))->toContain('F11');
+});
+
+test('F11 is quiet on the cleanup tools that name the runtime to remove it', function () {
+    // On a real multisite, 2026-09: a page-level kill switch in two sites'
+    // theme header scripts, and an uploads scanner's backdoor regex, both
+    // list hasDemoPage as a bare word. The indicator is hasDemoPage(.
+    // hour, through the page check). The runtime always calls getDemoPage
+    // beside it, so hasDemoPage is not an indicator.
+    $d = new Sky_Sentinel_Content_Detectors(sentinel_signatures());
+    expect(sentinel_ids($d->scan('page/site-2:home.html', sentinel_fixture('clean/page-kill-switch.html.txt'))))->not->toContain('F11')
+        ->and(sentinel_ids($d->scan('wp-content/mu-plugins/upload-scanner.php', "<?php \$bad = '/eval\\s*\\(|getActiveScripts|hasDemoPage|nochain|58460d0b3d4d6b03761c89120393c0c676676496/i';")))->not->toContain('F11');
 });
 
 test('F11 does not fire on the service-worker kill switch that clears nc-eth and ncblob', function () {
@@ -524,4 +536,19 @@ test('a loader in the MIDDLE of a big file is found, and so is one that crosses 
     $straddle = $pad . $long . sentinel_big_bundle(1_500_000);
     expect(strlen($long))->toBeGreaterThan(6000);
     expect(sentinel_ids($d->scan_any('wp-content/plugins/x/big.js', $straddle)))->toContain('F10');
+});
+
+test('F11 does not fire on the page cleanup that clears hasDemoPage from localStorage', function () {
+    // An inline cleanup script on a real home page (2026-09) removes the
+    // campaign's service workers, caches and localStorage entries. Its
+    // value regex names hasDemoPage and nc-blob; neither is a call.
+    $js = "var badVal=/getActiveScripts|hasDemoPage|nc-blob|fine-work-team|nochain/i;Object.keys(localStorage).forEach(function(k){if(badVal.test(localStorage.getItem(k)))localStorage.removeItem(k);});";
+    expect(sentinel_ids((new Sky_Sentinel_Content_Detectors(sentinel_signatures()))->scan('page/example.org:home.html', $js)))->not->toContain('F11');
+});
+
+test('F11 still knows hasDemoPage as a contract call', function () {
+    $js = "var c=new ethers.Contract(t,['function hasDemoPage() view returns (bool)'],p);";
+    expect(sentinel_ids((new Sky_Sentinel_Content_Detectors(sentinel_signatures()))->scan('wp-content/plugins/p/a.js', $js)))->toContain('F11');
+    // And as the runtime calls it, with no other indicator beside it.
+    expect(sentinel_ids((new Sky_Sentinel_Content_Detectors(sentinel_signatures()))->scan('wp-content/plugins/p/b.js', 'if(await contract.hasDemoPage()){go()}')))->toContain('F11');
 });

@@ -1,0 +1,24 @@
+<script>
+(function(){
+  /* A cleanup's page-level kill switch: removes the attacker's service
+     worker, caches and localStorage entries from visitors' browsers. It
+     names the attacker's artifacts in order to delete them. */
+  try{ if(window.caches){ caches.delete('nc-eth').catch(function(){}); caches.delete('ncblob').catch(function(){}); } }catch(e){}
+  try{
+    if(navigator.serviceWorker&&navigator.serviceWorker.getRegistrations){
+      navigator.serviceWorker.getRegistrations().then(function(rs){
+        rs.forEach(function(r){ var w=r.active||r.waiting||r.installing, u=(w&&w.scriptURL)||r.scope||"";
+          if(/nochain|nc-sw/i.test(u)) r.unregister(); });
+      }).catch(function(){});
+    }
+  }catch(e){}
+  try{
+    var badKey=/^nc[:_-]|^__nc|nochain/i, evm=/^0x[0-9a-f]{40}$/i,
+        badVal=/getActiveScripts|hasDemoPage|nc-blob|fine-work-team|nochain/i;
+    Object.keys(localStorage).forEach(function(k){
+      var v=""; try{v=localStorage.getItem(k)||""}catch(e){}
+      if(badKey.test(k)||evm.test(k)||badVal.test(v)) localStorage.removeItem(k);
+    });
+  }catch(e){}
+})();
+</script>

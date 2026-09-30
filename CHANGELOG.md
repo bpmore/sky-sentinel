@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.11
+
+- **S4 sees any markup under a media name**, not only files that open
+  with `<!DOCTYPE`, `<html` or `<script`. A lure fragment starting `<div`
+  under a picture's name is now read like any other disguised page and is
+  CRITICAL for what it carries.
+- **`hasDemoPage` is an indicator only as a call, `hasDemoPage(`.** Cleanup
+  tools name the bare word in a regex to remove the runtime (an uploads
+  scanner, a browser kill switch in a theme's header scripts or a page),
+  and the hourly page check reported the kill switch CRITICAL every
+  minute. The runtime's ABI and its call both carry `hasDemoPage(`.
+- 210 tests (was 206).
+
 ## 0.4.10
 
 - **A web page saved under a picture's name is read before it is called

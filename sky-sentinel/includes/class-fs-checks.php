@@ -411,8 +411,13 @@ final class Sky_Sentinel_FS_Checks {
 		if ( str_starts_with( $head, '<?php' ) || str_starts_with( $head, '<?=' ) ) {
 			return 'PHP';
 		}
-		$trim = ltrim( $head );
-		if ( 'svg' !== $ext && ( 0 === stripos( $trim, '<!DOCTYPE' ) || 0 === stripos( $trim, '<html' ) || 0 === stripos( $trim, '<script' ) ) ) {
+		// Markup: any tag or declaration first. No image, PDF, Office or
+		// media format starts with "<", so a lure fragment that opens with
+		// <div> or <body> is found as well as a whole page. Until 0.4.11 only
+		// <!DOCTYPE, <html and <script were. What it carries decides how bad
+		// it is (check_file()).
+		$trim = ltrim( str_starts_with( $head, "\xEF\xBB\xBF" ) ? substr( $head, 3 ) : $head );
+		if ( 'svg' !== $ext && preg_match( '/\A<[!?a-z]/i', $trim ) ) {
 			return 'HTML';
 		}
 		return null;
