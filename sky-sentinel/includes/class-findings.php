@@ -263,6 +263,44 @@ final class Sky_Sentinel_Findings {
 		) );
 	}
 
+	/**
+	 * Addresses behind L7 bursts in the last $days days, whatever the
+	 * findings' status: ip => the largest count a burst reported. The block
+	 * list reads these beside the failed-login tally, so an address that was
+	 * resolved on the Findings tab is not forgotten.
+	 *
+	 * @return array<string,int>
+	 */
+	public function burst_addresses( int $days ): array {
+		$since = gmdate( 'Y-m-d H:i:s', time() - $days * DAY_IN_SECONDS );
+		$rows  = (array) $this->db->get_col( $this->db->prepare( "SELECT summary FROM {$this->table} WHERE detector = 'L7' AND last_seen >= %s", $since ) );
+		$out   = array();
+		foreach ( $rows as $s ) {
+			if ( preg_match( '/^(\d+) failed logins from (\S+) /', (string) $s, $m ) ) {
+				$out[ $m[2] ] = max( $out[ $m[2] ] ?? 0, (int) $m[1] );
+			}
+		}
+		return $out;
+	}
+
+	/**
+	 * Every /24 (or /64) an administrator has logged in from, as L1 recorded
+	 * it. The block list never offers one of these.
+	 *
+	 * @return string[]
+	 */
+	public function admin_login_prefixes(): array {
+		$rows = (array) $this->db->get_col( "SELECT detail FROM {$this->events} WHERE kind = 'login' ORDER BY at DESC LIMIT 5000" );
+		$out  = array();
+		foreach ( $rows as $raw ) {
+			$d = json_decode( (string) $raw, true );
+			if ( is_array( $d ) && ! empty( $d['privileged'] ) && ! empty( $d['prefix'] ) ) {
+				$out[ (string) $d['prefix'] ] = true;
+			}
+		}
+		return array_keys( $out );
+	}
+
 	public function recent_events( int $limit = 50 ): array {
 		return (array) $this->db->get_results( $this->db->prepare( "SELECT * FROM {$this->events} ORDER BY at DESC LIMIT %d", $limit ) );
 	}

@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.13
+
+- **A block list on the Dashboard.** Every address with 5 or more failed
+  logins in the last 14 days, and every L7 burst in that time, one per line
+  to copy or download as `.txt` for a host or CDN firewall. A switch shows
+  them as /24 ranges (IPv6 /64) instead, adding up each range's failures.
+- **Held back, never listed:** anything inside the allowed networks, and
+  any address or range an administrator has logged in from, shown below
+  the list with the reason. A /24 is shared with strangers.
+- **The failed-login count keeps repeat offenders for 14 days**, not just
+  each day's busiest address. One-off failures still go after two days.
+- 217 tests (was 213).
+
 ## 0.4.12
 
 From Huntress's write-up of the ChatGPT Custom GPT ClickFix campaign

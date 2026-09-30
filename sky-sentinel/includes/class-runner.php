@@ -432,9 +432,26 @@ final class Sky_Sentinel_Runner {
 
 	// ---- Networks and Tor -------------------------------------------------
 
+	/** The network allow-list: shipped plus the settings page's. */
+	public function allowed_cidrs(): array {
+		return array_values( array_unique( array_filter( array_merge( $this->sig->allow_list( 'network_cidrs' ), (array) get_site_option( 'sky_sentinel_network_cidrs', array() ) ) ) ) );
+	}
+
+	/**
+	 * The Dashboard's block list: failed logins by address over the tally's
+	 * fourteen days, topped up by any L7 burst in the same window.
+	 */
+	public function block_list( bool $subnets ): array {
+		$now    = time();
+		$counts = Sky_Sentinel_Login_Tally::addresses( (array) get_site_option( Sky_Sentinel_Login_Tally::OPTION, array() ), $now );
+		foreach ( $this->findings->burst_addresses( Sky_Sentinel_Login_Tally::KEEP_DAYS ) as $ip => $n ) {
+			$counts[ $ip ] = max( $counts[ $ip ] ?? 0, $n );
+		}
+		return Sky_Sentinel_Login_Tally::block_list( $counts, $this->allowed_cidrs(), $this->findings->admin_login_prefixes(), $subnets );
+	}
+
 	public function network(): Sky_Sentinel_Network {
-		$cidrs = array_merge( $this->sig->allow_list( 'network_cidrs' ), (array) get_site_option( 'sky_sentinel_network_cidrs', array() ) );
-		return new Sky_Sentinel_Network( $this->sig->attacker_ips(), $this->sig->tooling_user_agents(), array_values( array_unique( array_filter( $cidrs ) ) ), self::tor_exits( $this->data_dir ) );
+		return new Sky_Sentinel_Network( $this->sig->attacker_ips(), $this->sig->tooling_user_agents(), $this->allowed_cidrs(), self::tor_exits( $this->data_dir ) );
 	}
 
 	/** Weekly: the Tor exit list, into the data directory. A fixed URL, never a user-supplied one. */

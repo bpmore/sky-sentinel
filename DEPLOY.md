@@ -57,6 +57,12 @@ says so. Warn whoever reads the alerts first.
 6. Re-sign the baseline.
 7. Resolve the upgrade's L8 and L9 findings.
 
+### 0.4.12 to 0.4.13
+
+The steps above; nothing to resolve. The Dashboard's Block list starts with
+the last 14 days' L7 bursts and today's and yesterday's failed logins, and
+fills in over two weeks.
+
 ### 0.4.11 to 0.4.12
 
 The steps above. Upload the zip's `mu-plugins/` contents only, never a

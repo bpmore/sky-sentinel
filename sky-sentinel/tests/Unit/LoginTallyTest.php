@@ -90,3 +90,58 @@ test('the digest lines say the day, count, addresses and busiest address, and re
         ->toContain('Counting since 2026-09-25.');
     expect(Sky_Sentinel_Login_Tally::digest_lines(array(), SENTINEL_T0))->toBe(array('Failed logins: none counted since this version was installed.'));
 });
+
+// ---- 0.4.13: the block list -------------------------------------------------
+
+test('older days keep every address that failed more than once, and drop the one-off ones', function () {
+    $t = sentinel_tally_fail(array(), '192.0.2.188', 40, SENTINEL_T0 + 100);
+    $t = sentinel_tally_fail($t, '203.0.113.9', 2, SENTINEL_T0 + 200);
+    $t = sentinel_tally_fail($t, '198.51.100.1', 1, SENTINEL_T0 + 300);
+    // Three days later the 25th is compacted.
+    $t = Sky_Sentinel_Login_Tally::compact($t, SENTINEL_T0 + 3 * 86400);
+    expect($t['days']['2026-09-25']['repeat'])->toBe(array('192.0.2.188' => 40, '203.0.113.9' => 2))
+        // day() reads the same as before for everything else.
+        ->and(Sky_Sentinel_Login_Tally::day($t, '2026-09-25'))->toBe(array('total' => 43, 'distinct' => 3, 'capped' => false, 'top_ip' => '192.0.2.188', 'top_count' => 40));
+});
+
+test('addresses() adds up every day in the window and nothing older', function () {
+    $t = sentinel_tally_fail(array(), '192.0.2.188', 6, SENTINEL_T0 - 20 * 86400); // outside 14 days
+    $t = sentinel_tally_fail($t, '192.0.2.188', 3, SENTINEL_T0 - 5 * 86400);
+    $t = sentinel_tally_fail($t, '192.0.2.188', 4, SENTINEL_T0 + 100);
+    $t = sentinel_tally_fail($t, '203.0.113.9', 1, SENTINEL_T0 + 200);
+    expect(Sky_Sentinel_Login_Tally::addresses($t, SENTINEL_T0 + 3600))->toBe(array('192.0.2.188' => 7, '203.0.113.9' => 1))
+        // A shorter window leaves out the day five days back.
+        ->and(Sky_Sentinel_Login_Tally::addresses($t, SENTINEL_T0 + 3600, 3))->toBe(array('192.0.2.188' => 4, '203.0.113.9' => 1));
+});
+
+test('the block list: addresses at five or more, most first; /24s add their addresses up', function () {
+    $counts = array('192.0.2.188' => 2359, '192.0.2.7' => 3, '198.18.106.188' => 1238, '203.0.113.171' => 4, '198.51.100.1' => 1, 'garbage' => 50);
+    $ip  = Sky_Sentinel_Login_Tally::block_list($counts, array(), array(), false);
+    $net = Sky_Sentinel_Login_Tally::block_list($counts, array(), array(), true);
+    expect(array_keys($ip['block']))->toBe(array('192.0.2.188', '198.18.106.188'))
+        ->and(array_keys($net['block']))->toBe(array('192.0.2.0/24', '198.18.106.0/24'))
+        ->and($net['block']['192.0.2.0/24'])->toBe(array('total' => 2362, 'addresses' => 2))
+        ->and($ip['held'])->toBe(array());
+    // Most first, whatever order they arrive in.
+    $asc = Sky_Sentinel_Login_Tally::block_list(array('192.0.2.1' => 5, '192.0.2.2' => 9, '198.51.100.3' => 7), array(), array(), false);
+    expect(array_keys($asc['block']))->toBe(array('192.0.2.2', '198.51.100.3', '192.0.2.1'));
+    // IPv6 groups by /64.
+    $v6 = Sky_Sentinel_Login_Tally::block_list(array('2001:db8:1:2::5' => 3, '2001:db8:1:2::9' => 3), array(), array(), true);
+    expect(array_keys($v6['block']))->toBe(array('2001:db8:1:2::/64'));
+});
+
+test('the block list never offers an allowed network or a range an administrator logged in from', function () {
+    $counts = array('10.30.5.9' => 50, '10.0.0.200' => 50, '10.0.0.20' => 50, '100.64.199.172' => 50, '192.0.2.188' => 50);
+    $allowed = array('10.30.0.0/16', '10.0.0.128/25');
+    $admins  = array('100.64.199.0/24');
+    $ip  = Sky_Sentinel_Login_Tally::block_list($counts, $allowed, $admins, false);
+    $net = Sky_Sentinel_Login_Tally::block_list($counts, $allowed, $admins, true);
+    // Addresses: 10.0.0.20 is outside the /25, so it may be blocked alone.
+    expect(array_keys($ip['block']))->toBe(array('10.0.0.20', '192.0.2.188'))
+        ->and($ip['held']['10.30.5.9']['why'])->toContain('10.30.0.0/16')
+        ->and($ip['held']['10.0.0.200']['why'])->toContain('10.0.0.128/25')
+        ->and($ip['held']['100.64.199.172']['why'])->toContain('administrator');
+    // Ranges: 10.0.0.0/24 overlaps the allowed /25, so the whole range is held.
+    expect(array_keys($net['block']))->toBe(array('192.0.2.0/24'))
+        ->and(array_keys($net['held']))->toContain('10.30.5.0/24')->toContain('10.0.0.0/24')->toContain('100.64.199.0/24');
+});

@@ -375,3 +375,25 @@ written to slip past dotted-address filters.
 It is a download server, and `1614733393` is also a Unix time that version
 strings carry.
 
+---
+
+## The block list suggests; it never offers a range staff use
+
+**Decision.** The Dashboard lists addresses with 5 or more failed logins in
+14 days, plus every L7 burst address in that time, as lines to paste into a
+host's firewall, or as their /24s (/64 for IPv6). Anything inside the
+network allow-list, or that an administrator has logged in from, is held
+back and shown with the reason. Sentinel still blocks nothing itself.
+
+**Why.** Blocking at the host stops attempts before WordPress, and copying
+addresses out of an export by hand is where mistakes happen. A /24 is the
+hosting range a spray comes from, but also a home ISP's neighbourhood and a
+VPN's exit pool: the safety check is what makes the list safe to paste.
+
+**Retention.** Older days keep every address that failed twice or more,
+within the existing 300-address cap; one-off failures go after two days.
+L7 bursts come from the findings table whatever their status.
+
+**Rejected.** *Blocking from WordPress*: attempts would still reach PHP, and
+a wrong range would lock administrators out of the place it is managed.
+

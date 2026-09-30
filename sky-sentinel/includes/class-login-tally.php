@@ -16,7 +16,11 @@
  * Shape:
  *   since => 'Y-m-d'  the first day counted, so a new install does not read as a quiet week
  *   days  => [ 'Y-m-d' => [ total, ips => [ip => n], capped ] ]   today and yesterday
- *            [ 'Y-m-d' => [ total, distinct, capped, top_ip, top_count ] ]  older, compacted
+ *            [ 'Y-m-d' => [ total, distinct, capped, top_ip, top_count, repeat => [ip => n] ] ]  older, compacted
+ *
+ * `repeat` keeps, for older days, every address that failed more than once
+ * that day (0.4.13), so the block list can look back KEEP_DAYS. A single
+ * failure from an address is not kept past yesterday.
  */
 final class Sky_Sentinel_Login_Tally {
 
@@ -31,6 +35,9 @@ final class Sky_Sentinel_Login_Tally {
 
 	/** L13 wants the week before a quiet day to have averaged at least this many failures a day. */
 	public const QUIET_FLOOR = 10;
+
+	/** The block list: an address (or a /24) with at least this many failures in KEEP_DAYS. */
+	public const BLOCK_MIN = 5;
 
 	/** Count one failed login. */
 	public static function record( array $tally, string $ip, int $now ): array {
@@ -63,7 +70,9 @@ final class Sky_Sentinel_Login_Tally {
 			if ( $date < $oldest ) {
 				unset( $tally['days'][ $date ] );
 			} elseif ( ! in_array( $date, $keep_detail, true ) && isset( $day['ips'] ) ) {
-				$tally['days'][ $date ] = self::summary_of( $day );
+				$repeat = array_filter( (array) $day['ips'], fn( $n ) => $n > 1 );
+				arsort( $repeat );
+				$tally['days'][ $date ] = self::summary_of( $day ) + array( 'repeat' => $repeat );
 			}
 		}
 		if ( isset( $tally['days'] ) ) {
@@ -83,7 +92,98 @@ final class Sky_Sentinel_Login_Tally {
 		if ( null === $day ) {
 			return array( 'total' => 0, 'distinct' => 0, 'capped' => false, 'top_ip' => '', 'top_count' => 0 );
 		}
-		return isset( $day['ips'] ) ? self::summary_of( $day ) : $day;
+		return isset( $day['ips'] ) ? self::summary_of( $day ) : array_diff_key( $day, array( 'repeat' => true ) );
+	}
+
+	/**
+	 * Failures by address over the last $days days: every address for today
+	 * and yesterday, the repeat offenders for older days.
+	 *
+	 * @return array<string,int> ip => failures, most first
+	 */
+	public static function addresses( array $tally, int $now, int $days = self::KEEP_DAYS ): array {
+		$oldest = gmdate( 'Y-m-d', $now - ( $days - 1 ) * 86400 );
+		$out    = array();
+		foreach ( (array) ( $tally['days'] ?? array() ) as $date => $day ) {
+			if ( $date < $oldest ) {
+				continue;
+			}
+			foreach ( (array) ( $day['ips'] ?? $day['repeat'] ?? array() ) as $ip => $n ) {
+				$out[ (string) $ip ] = ( $out[ (string) $ip ] ?? 0 ) + (int) $n;
+			}
+		}
+		arsort( $out );
+		return $out;
+	}
+
+	/**
+	 * What to paste into a host's block list: addresses, or their /24s (/64
+	 * for IPv6), with at least $min failures. Held back, and never in the
+	 * list: anything inside an allow-listed network, and any address or
+	 * /24 an administrator has logged in from. A /24 is shared with
+	 * strangers; blocking one an administrator uses locks them out.
+	 *
+	 * @param array<string,int> $counts        ip => failures (addresses()).
+	 * @param string[]          $allowed_cidrs The network allow-list.
+	 * @param string[]          $admin_prefixes /24s (or /64s) administrators logged in from.
+	 * @return array{block: array<string,array{total:int,addresses:int}>, held: array<string,array{total:int,addresses:int,why:string}>}
+	 */
+	public static function block_list( array $counts, array $allowed_cidrs, array $admin_prefixes, bool $subnets, int $min = self::BLOCK_MIN ): array {
+		$groups = array();
+		foreach ( $counts as $ip => $n ) {
+			$ip = (string) $ip;
+			if ( false === @inet_pton( $ip ) ) {
+				continue;
+			}
+			$key = $subnets ? Sky_Sentinel_Network::prefix_of( $ip ) : $ip;
+			$groups[ $key ]['total']   = ( $groups[ $key ]['total'] ?? 0 ) + (int) $n;
+			$groups[ $key ]['members'][] = $ip;
+		}
+		$out = array( 'block' => array(), 'held' => array() );
+		foreach ( $groups as $key => $g ) {
+			if ( $g['total'] < $min ) {
+				continue;
+			}
+			$row = array( 'total' => $g['total'], 'addresses' => count( $g['members'] ) );
+			$why = self::protected_by( (string) $key, $g['members'], $allowed_cidrs, $admin_prefixes );
+			if ( null !== $why ) {
+				$out['held'][ $key ] = $row + array( 'why' => $why );
+			} else {
+				$out['block'][ $key ] = $row;
+			}
+		}
+		foreach ( array( 'block', 'held' ) as $k ) {
+			uasort( $out[ $k ], fn( $a, $b ) => $b['total'] <=> $a['total'] );
+		}
+		return $out;
+	}
+
+	/** Why an entry must not be blocked, or null. $key is an address or a prefix. */
+	private static function protected_by( string $key, array $members, array $allowed_cidrs, array $admin_prefixes ): ?string {
+		$is_prefix = str_contains( $key, '/' );
+		foreach ( $allowed_cidrs as $cidr ) {
+			$cidr = trim( (string) $cidr );
+			if ( '' === $cidr ) {
+				continue;
+			}
+			if ( $is_prefix ) {
+				// Overlap either way: the /24 inside the allowed range, or the
+				// allowed range (a /25, a single address) inside the /24.
+				$base = strstr( $key, '/', true );
+				$net  = str_contains( $cidr, '/' ) ? strstr( $cidr, '/', true ) : $cidr;
+				if ( Sky_Sentinel_Network::in_cidr( $base, $cidr ) || Sky_Sentinel_Network::in_cidr( $net, $key ) ) {
+					return "overlaps the allowed network {$cidr}";
+				}
+			} elseif ( Sky_Sentinel_Network::in_cidr( $key, $cidr ) ) {
+				return "inside the allowed network {$cidr}";
+			}
+		}
+		foreach ( $members as $ip ) {
+			if ( in_array( Sky_Sentinel_Network::prefix_of( $ip ), $admin_prefixes, true ) ) {
+				return 'an administrator has logged in from ' . Sky_Sentinel_Network::prefix_of( $ip );
+			}
+		}
+		return null;
 	}
 
 	/**

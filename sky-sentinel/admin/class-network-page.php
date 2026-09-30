@@ -33,6 +33,7 @@ final class Sky_Sentinel_Network_Page {
 		add_action( 'admin_post_sky_sentinel_sign', array( $this, 'sign_baseline' ) );
 		add_action( 'wp_ajax_sky_sentinel_step', array( $this, 'ajax_step' ) );
 		add_action( 'admin_post_sky_sentinel_export', array( $this, 'export' ) );
+		add_action( 'admin_post_sky_sentinel_blocklist', array( $this, 'blocklist' ) );
 		add_action( 'admin_post_sky_sentinel_evidence', array( $this, 'evidence' ) );
 		add_action( 'admin_post_sky_sentinel_signatures', array( $this, 'signatures' ) );
 	}
@@ -129,6 +130,18 @@ final class Sky_Sentinel_Network_Page {
 			fputcsv( $h, array( $r->severity, $r->detector, $r->status, $r->blog_id, $r->subject, $r->summary, $r->sha256, $r->first_seen, $r->last_seen, $r->seen_count, $r->alerted_at, $r->note, $r->evidence, $r->detail ) );
 		}
 		fclose( $h );
+		exit;
+	}
+
+	/** The block list as plain text, one address or /24 per line, for a host's firewall. */
+	public function blocklist(): void {
+		$this->guard( 'sky_sentinel_blocklist' );
+		$subnets = 'subnet' === sanitize_key( $_GET['mode'] ?? 'ip' );
+		$list    = $this->runner->block_list( $subnets );
+		nocache_headers();
+		header( 'Content-Type: text/plain; charset=utf-8' );
+		header( 'Content-Disposition: attachment; filename="' . sprintf( 'sentinel-blocklist-%s-%s-%s.txt', sanitize_file_name( Sky_Sentinel::site_label() ), $subnets ? 'subnets' : 'addresses', gmdate( 'Ymd' ) ) . '"' );
+		echo implode( "\n", array_keys( $list['block'] ) ) . ( $list['block'] ? "\n" : '' );
 		exit;
 	}
 

@@ -59,6 +59,61 @@ if ( empty( $tally['since'] ) ) :
 	</table>
 <?php endif; ?>
 
+<h2>Block list</h2>
+<?php
+$bl_ip  = $data['runner']->block_list( false );
+$bl_net = $data['runner']->block_list( true );
+$bl_url = fn( string $mode ) => wp_nonce_url( admin_url( 'admin-post.php?action=sky_sentinel_blocklist&mode=' . $mode ), 'sky_sentinel_blocklist' );
+?>
+<p style="max-width:900px">Addresses with <?php echo (int) Sky_Sentinel_Login_Tally::BLOCK_MIN; ?> or more failed logins in the last <?php echo (int) Sky_Sentinel_Login_Tally::KEEP_DAYS; ?> days, and any L7 burst in that time, ready to paste into the host's block list, one per line. <strong>/24</strong> blocks the whole range an address sits in (<code>192.0.2.188</code> becomes <code>192.0.2.0/24</code>); a range is shared with strangers, so it is never offered when it overlaps the allowed networks or an administrator has logged in from it.</p>
+<p>
+	<label><input type="radio" name="sentinel_bl_mode" value="ip" checked> Addresses (<?php echo (int) count( $bl_ip['block'] ); ?>)</label>
+	&nbsp; <label><input type="radio" name="sentinel_bl_mode" value="subnet"> /24 ranges (<?php echo (int) count( $bl_net['block'] ); ?>)</label>
+</p>
+<?php foreach ( array( 'ip' => $bl_ip, 'subnet' => $bl_net ) as $mode => $bl ) : ?>
+	<div class="sentinel-bl" data-mode="<?php echo esc_attr( $mode ); ?>"<?php echo 'ip' === $mode ? '' : ' hidden'; ?> style="max-width:900px">
+		<?php if ( $bl['block'] ) : ?>
+			<textarea readonly rows="<?php echo (int) min( 12, max( 3, count( $bl['block'] ) ) ); ?>" style="width:100%;font-family:monospace" onclick="this.select()"><?php echo esc_textarea( implode( "\n", array_keys( $bl['block'] ) ) ); ?></textarea>
+			<p>
+				<button type="button" class="button sentinel-bl-copy">Copy</button>
+				<a class="button" href="<?php echo esc_url( $bl_url( $mode ) ); ?>">Download .txt</a>
+			</p>
+			<table class="widefat striped"><thead><tr><th><?php echo 'ip' === $mode ? 'Address' : 'Range'; ?></th><th>Failed logins</th><?php if ( 'subnet' === $mode ) : ?><th>Addresses</th><?php endif; ?></tr></thead><tbody>
+			<?php foreach ( $bl['block'] as $entry => $row ) : ?>
+				<tr><td><code><?php echo esc_html( $entry ); ?></code></td><td><?php echo (int) $row['total']; ?></td><?php if ( 'subnet' === $mode ) : ?><td><?php echo (int) $row['addresses']; ?></td><?php endif; ?></tr>
+			<?php endforeach; ?>
+			</tbody></table>
+		<?php else : ?>
+			<p>Nothing at <?php echo (int) Sky_Sentinel_Login_Tally::BLOCK_MIN; ?> or more failed logins in the last <?php echo (int) Sky_Sentinel_Login_Tally::KEEP_DAYS; ?> days.</p>
+		<?php endif; ?>
+		<?php if ( $bl['held'] ) : ?>
+			<p><strong>Held back</strong> (not in the list above; block by hand only if you are sure):</p>
+			<ul style="list-style:disc;margin-left:20px">
+			<?php foreach ( $bl['held'] as $entry => $row ) : ?>
+				<li><code><?php echo esc_html( $entry ); ?></code>, <?php echo (int) $row['total']; ?> failed logins: <?php echo esc_html( $row['why'] ); ?></li>
+			<?php endforeach; ?>
+			</ul>
+		<?php endif; ?>
+	</div>
+<?php endforeach; ?>
+<script>
+(function(){
+	document.querySelectorAll('input[name="sentinel_bl_mode"]').forEach(function(r){
+		r.addEventListener('change', function(){
+			document.querySelectorAll('.sentinel-bl').forEach(function(d){ d.hidden = d.getAttribute('data-mode') !== r.value; });
+		});
+	});
+	document.querySelectorAll('.sentinel-bl-copy').forEach(function(b){
+		b.addEventListener('click', function(){
+			var t = b.closest('.sentinel-bl').querySelector('textarea');
+			t.select();
+			var done = function(){ b.textContent = 'Copied'; setTimeout(function(){ b.textContent = 'Copy'; }, 1500); };
+			if (navigator.clipboard) { navigator.clipboard.writeText(t.value).then(done, function(){ document.execCommand('copy'); done(); }); } else { document.execCommand('copy'); done(); }
+		});
+	});
+})();
+</script>
+
 <h2>Baseline</h2>
 <p>
 	<?php if ( 'ok' === $b['state'] ) : ?>
