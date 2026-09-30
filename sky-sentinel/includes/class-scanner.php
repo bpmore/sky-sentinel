@@ -164,7 +164,7 @@ final class Sky_Sentinel_Scanner {
 				}
 
 				$stat = $in_uploads ? false : @stat( $child_abs );
-				foreach ( $this->fs->check_file( $child_rel, $size, $head, $stat ? (int) $stat['mode'] : null, $stat ? (int) $stat['mtime'] : null, $stat ? (int) $stat['ctime'] : null ) as $f ) {
+				foreach ( $this->fs->check_file( $child_rel, $size, $head, $stat ? (int) $stat['mode'] : null, $stat ? (int) $stat['mtime'] : null, $stat ? (int) $stat['ctime'] : null, is_string( $bytes ) ? $bytes : null ) as $f ) {
 					$findings[] = $f;
 				}
 				if ( $wants_content && $size > Sky_Sentinel_Content_Detectors::MAX_BYTES && '' !== $sha ) {

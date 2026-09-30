@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.4.9
+
+Two S3 false positives that fired HIGH on every affected site.
+
+- **WordPress translation files** (`languages/**/*.l10n.php`, written by
+  WordPress 6.5+) are not flagged when they only return an array of
+  strings. The tokenizer checks it, without running it: one `return`, then
+  only strings, numbers, null/true/false and array punctuation. A call, a
+  variable, a second statement or text outside the tag and it is HIGH.
+- **MailPoet's compiled template cache** (`uploads/mailpoet*/cache/<2
+  hex>/<64 hex>.php` that starts as a Twig template class, from current or
+  older MailPoet) is not flagged. Anything else in that folder still is.
+- 204 tests (was 200).
+
 ## 0.4.8
 
 From scoring the detectors against a second real infected backup (a

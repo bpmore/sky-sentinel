@@ -1,0 +1,17 @@
+<?php
+
+use MailPoetVendor\Twig\Environment;
+use MailPoetVendor\Twig\Error\LoaderError;
+use MailPoetVendor\Twig\Error\RuntimeError;
+use MailPoetVendor\Twig\Markup;
+use MailPoetVendor\Twig\Source;
+use MailPoetVendor\Twig\Template;
+
+/* newsletter/templates/blocks/spacer/block.hbs */
+class __TwigTemplate_c83cdb3e7d0b28237cd733c3da622f0ce955b4d460a260de599943acf5adbed2 extends \MailPoetVendor\Twig\Template
+{
+    protected function doDisplay(array $context, array $blocks = [])
+    {
+        echo "<div class=\"mailpoet_spacer\"></div>";
+    }
+}

@@ -1,0 +1,2 @@
+<?php
+return ['x-generator'=>'GlotPress/4.0.3','translation-revision-date'=>'2026-06-13 15:23:21+0000','plural-forms'=>'nplurals=2; plural=n != 1;','project-id-version'=>'WordPress - 6.8.x','language'=>'es','domain'=>NULL,'messages'=>['Save Draft'=>'Guardar borrador','%s comment'=>'%s comentario' . "\0" . '%s comentarios','Use "%s" (eval) instead.'=>'Utiliza «%s» (eval) en su lugar.']];

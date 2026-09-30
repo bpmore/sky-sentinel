@@ -1,0 +1,10 @@
+<?php
+
+/* newsletters/campaign_stats.html */
+class __TwigTemplate_63360c07ec759f58e51d17547bbe0f8be313b35c1f15dd58750892eedca4aa7e extends Twig_Template
+{
+    public function __construct(Twig_Environment $env)
+    {
+        parent::__construct($env);
+    }
+}

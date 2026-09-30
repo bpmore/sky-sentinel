@@ -297,3 +297,21 @@ signed after a break-in holds the campaign's plugins as normal. On a real
 multisite both were active on the main site. The hex rule needs letters and
 digits, so a 12-digit date is not a match.
 
+---
+
+## Translation files and MailPoet's template cache are recognised, not allow-listed
+
+**Decision.** S3 is silent on a `languages/` `*.l10n.php` whose tokens are
+one `return` of a literal array, and on a file in MailPoet's cache folder
+named `<2 hex>/<64 hex>.php` whose first line is a compiled Twig template
+class. Anything else in either place is still HIGH.
+
+**Why.** On real sites these were hundreds of HIGHs that were always false,
+which teaches people to skip S3. A folder allow-list would excuse any code
+put there: a translation file is PHP that WordPress includes. The tokenizer
+proves the file is data; it parses, never runs.
+
+**Limits.** A backdoor that copies a cache file's name and first 256 bytes
+inside MailPoet's cache folder is not an S3; uploads/ is not content-scanned,
+so the rendered-page check and the live hooks are what remain.
+

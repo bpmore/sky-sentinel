@@ -194,3 +194,20 @@ test('the walk reads big files whole, in memory and past the 8 MB read, and hash
         @unlink($manifest);
     }
 });
+
+test('the walk hands S3 the bytes it read, so a translation file is recognised as data', function () {
+    $root = sys_get_temp_dir() . '/sentinel-' . bin2hex(random_bytes(4));
+    $manifest = $root . '.manifest';
+    $data = sentinel_fixture('clean/translations.l10n.php.txt');
+    mkdir("{$root}/wp-content/languages/plugins", 0777, true);
+    file_put_contents("{$root}/wp-content/languages/plugins/tablepress-es_ES.l10n.php", $data);
+    file_put_contents("{$root}/wp-content/languages/plugins/other-es_ES.l10n.php", $data . "\n<?php eval(\$_POST['x']);");
+    try {
+        $r = (new Sky_Sentinel_Scanner($root, sentinel_signatures()))->scan_all($manifest);
+        $s3 = array_map(fn($f) => $f->subject, array_filter($r['findings'], fn($f) => 'S3' === $f->detector));
+        expect(array_values($s3))->toBe(array('wp-content/languages/plugins/other-es_ES.l10n.php'));
+    } finally {
+        sentinel_rm($root);
+        @unlink($manifest);
+    }
+});

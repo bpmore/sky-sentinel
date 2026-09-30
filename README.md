@@ -119,7 +119,7 @@ and L9 CRITICAL on purpose. `DEPLOY.md` has the steps.
 
     cd sky-sentinel && composer install && ./vendor/bin/pest
 
-200 tests, no WordPress needed: every decision is in a class with no
+204 tests, no WordPress needed: every decision is in a class with no
 WordPress in it. Each guarding clause was mutation-tested (put the bug back,
 watch the test fail).
 

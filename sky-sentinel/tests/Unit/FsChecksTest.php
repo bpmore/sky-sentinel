@@ -269,3 +269,59 @@ test('S3: an empty PHP file has nothing to run and is not flagged; one byte more
     expect($fs->check_file('wp-content/blogs.dir/25/files/wpallexport/functions.php', 0, ''))->toBe(array())
         ->and($fs->check_file('wp-content/blogs.dir/25/files/wpallexport/functions.php', 30, '<?php eval($_POST["x"]);')[0]->severity)->toBe('high');
 });
+
+test('S3: a translation file that only returns strings is not flagged; one line of code in it is HIGH', function () {
+    // WordPress 6.5+ writes languages/**/*.l10n.php. Thirty HIGHs on one
+    // real site, one per translated plugin.
+    $fs = sentinel_fs();
+    $data = sentinel_fixture('clean/translations.l10n.php.txt');
+    $bad  = str_replace("']];", "']]; eval(\$_POST['x']);", $data);
+    $p = 'wp-content/languages/plugins/gravityforms-es_ES.l10n.php';
+    expect($fs->check_file($p, strlen($data), substr($data, 0, 256), null, null, null, $data))->toBe(array())
+        ->and($fs->check_file($p, strlen($bad), substr($bad, 0, 256), null, null, null, $bad)[0]->severity)->toBe('high')
+        // No bytes, no proof: HIGH.
+        ->and($fs->check_file($p, strlen($data), substr($data, 0, 256))[0]->severity)->toBe('high')
+        // Data, but not named like a translation file, or not in languages/: HIGH.
+        ->and($fs->check_file('wp-content/languages/plugins/helper.php', strlen($data), substr($data, 0, 256), null, null, null, $data)[0]->severity)->toBe('high')
+        ->and($fs->check_file('wp-content/cache/x.l10n.php', strlen($data), substr($data, 0, 256), null, null, null, $data)[0]->severity)->toBe('high');
+});
+
+test('what counts as a file that only returns a literal array', function () {
+    $yes = fn(string $s) => Sky_Sentinel_FS_Checks::returns_literal_array($s);
+    expect($yes("<?php\nreturn ['a'=>['b'=>1, 2=>3.5, 'c'=>null, 'd'=>TRUE], 'e'=>'x' . \"\\0\" . 'y'];\n"))->toBeTrue()
+        ->and($yes("<?php return ['a'=>1]; ?>\n"))->toBeTrue()
+        ->and($yes("<?php /* generated */ return [];"))->toBeTrue()
+        ->and($yes('<?php return ["a"=>"$x"];'))->toBeFalse()          // interpolation
+        ->and($yes("<?php return ['a'=>system('id')];"))->toBeFalse()   // a call
+        ->and($yes("<?php return ['a'=>PHP_OS];"))->toBeFalse()         // a constant
+        ->and($yes("<?php return ['a'=>1]; eval(\$_POST['x']);"))->toBeFalse() // a second statement
+        ->and($yes("<?php return ['a'=><<<X\nhi\nX\n];"))->toBeFalse()  // heredoc
+        ->and($yes("<?php \$a = 1; return [];"))->toBeFalse()           // anything before return
+        ->and($yes("<?php ['a'=>1];"))->toBeFalse()                      // no return at all
+        ->and($yes("x<?php return [];"))->toBeFalse()                    // text before the tag
+        ->and($yes("<?php return ['a'=>1]; ?>\n<?php eval(\$_POST['x']);"))->toBeFalse()
+        ->and($yes("<?php return ['a'=>1]"))->toBeFalse();              // never finished
+});
+
+test('S3: MailPoet\'s compiled Twig cache is not flagged; the same file anywhere else, or named otherwise, is HIGH', function () {
+    // 724 HIGHs on one real site.
+    $fs = sentinel_fs();
+    $twig = sentinel_fixture('clean/twig-cache.php.txt');
+    $head = substr($twig, 0, 256);
+    $name = '61/6145c290daa80e197668fc6f1a3bd812ec00d62e4429afdefecea0ca9619e132.php';
+    foreach (array("wp-content/uploads/mailpoet/cache/{$name}", "wp-content/uploads/mailpoet-premium/cache/{$name}", "wp-content/uploads/sites/4/mailpoet/cache/{$name}", "wp-content/blogs.dir/4/files/mailpoet/cache/{$name}") as $p) {
+        expect($fs->check_file($p, strlen($twig), $head))->toBe(array());
+    }
+    // Older MailPoet builds: no use block, the class straight after the name.
+    $old = substr(sentinel_fixture('clean/twig-cache-old.php.txt'), 0, 256);
+    expect($fs->check_file("wp-content/uploads/mailpoet-premium/cache/{$name}", 900, $old))->toBe(array())
+        ->and($fs->check_file("wp-content/uploads/mailpoet-premium/cache/{$name}", 900, str_replace('extends Twig_Template', 'extends Anything', $old))[0]->severity)->toBe('high');
+    foreach (array(
+        array("wp-content/uploads/mailpoet/cache/{$name}", '<?php eval($_POST["x"]);'),   // right place, wrong content
+        array('wp-content/uploads/mailpoet/cache/61/shell.php', $head),                   // wrong name
+        array('wp-content/uploads/mailpoet/cache/6145c290daa80e197668fc6f1a3bd812ec00d62e4429afdefecea0ca9619e132.php', $head), // no hash folder
+        array("wp-content/uploads/other/cache/{$name}", $head),                           // wrong plugin
+    ) as list($p, $h)) {
+        expect($fs->check_file($p, 500, $h)[0]->severity)->toBe('high');
+    }
+});

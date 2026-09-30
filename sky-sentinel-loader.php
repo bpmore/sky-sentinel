@@ -2,7 +2,7 @@
 /**
  * Plugin Name: Sky Sentinel (loader)
  * Description: Loads wp-content/mu-plugins/sky-sentinel/. A must-use plugin so it cannot be switched off from wp-admin.
- * Version: 0.4.8
+ * Version: 0.4.9
  *
  * Copy this file to wp-content/mu-plugins/sky-sentinel-loader.php and the
  * sky-sentinel/ directory beside it. WordPress only loads top-level files

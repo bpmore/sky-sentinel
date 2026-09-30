@@ -57,6 +57,12 @@ says so. Warn whoever reads the alerts first.
 6. Re-sign the baseline.
 7. Resolve the upgrade's L8 and L9 findings.
 
+### 0.4.8 to 0.4.9
+
+The steps above, then resolve open S3 HIGHs on `languages/` `.l10n.php`
+files and on MailPoet's `uploads/mailpoet*/cache/`. Any that 0.4.9 still
+raises are not translation data or not MailPoet's cache: read them.
+
 ### 0.4.6 to 0.4.8
 
 The steps above. Expect L8 on the signature files as well as the code. The

@@ -56,9 +56,10 @@ final class Sky_Sentinel_FS_Checks {
 	 * @param int|null    $mode     fileperms(), for S9. Null when the walker did not stat.
 	 * @param int|null    $mtime    filemtime(), for S9.
 	 * @param int|null    $ctime    filectime(), for S9.
+	 * @param string|null $bytes    The whole file, when the walker read it (outside uploads/, up to 8 MB). S3 reads it to tell translation data from code.
 	 * @return Sky_Sentinel_Finding[]
 	 */
-	public function check_file( string $rel_path, int $size, ?string $head, ?int $mode = null, ?int $mtime = null, ?int $ctime = null ): array {
+	public function check_file( string $rel_path, int $size, ?string $head, ?int $mode = null, ?int $mtime = null, ?int $ctime = null, ?string $bytes = null ): array {
 		$rel_path = ltrim( str_replace( '\\', '/', $rel_path ), '/' );
 		$out      = array();
 		$base     = basename( $rel_path );
@@ -88,6 +89,17 @@ final class Sky_Sentinel_FS_Checks {
 						// Empty: nothing to run. WP All Export leaves a 0-byte
 						// functions.php in each site's uploads. Once anything is
 						// written into it, the next walk sees a size and says so.
+					} elseif ( 'languages/' === $dir && str_ends_with( strtolower( $base ), '.l10n.php' ) && null !== $bytes && self::returns_literal_array( $bytes ) ) {
+						// WordPress 6.5+ translations: <?php return [...];
+						// strings and nothing else. Thirty on one real site,
+						// one per plugin with a Spanish translation. The
+						// tokens prove it is data; one function call, variable
+						// or second statement and it is HIGH again.
+					} elseif ( self::is_twig_cache( $rel_path, $head ) ) {
+						// MailPoet's compiled email templates: 724 on one
+						// real site, each a Twig class named by its
+						// hash in a two-hex folder. Only that exact shape;
+						// anything else in the folder is still HIGH.
 					} else {
 						$f( 'S3', 'high', "PHP file inside {$dir}" );
 					}
@@ -189,6 +201,67 @@ final class Sky_Sentinel_FS_Checks {
 			$out[] = new Sky_Sentinel_Finding( 'S1', 'high', $rel_dir, 'Directory named <word>-<unix time>, the campaign plant naming', array( 'name' => $m[1], 'planted_at' => self::epoch_of( $m[1] ) ) );
 		}
 		return $out;
+	}
+
+	/**
+	 * A PHP file that only returns a literal array: one `return`, then
+	 * strings, numbers, null/true/false, [ ] , => and . between strings,
+	 * then `;`. Read with
+	 * the tokenizer, which parses and never executes. A double-quoted string
+	 * with a variable in it, a call, a heredoc, a second statement or text
+	 * outside the PHP tag all fail.
+	 */
+	public static function returns_literal_array( string $bytes ): bool {
+		$ok = array( T_WHITESPACE, T_COMMENT, T_DOC_COMMENT, T_CONSTANT_ENCAPSED_STRING, T_LNUMBER, T_DNUMBER, T_DOUBLE_ARROW );
+		$state = 'open';
+		foreach ( token_get_all( $bytes ) as $t ) {
+			$id = is_array( $t ) ? $t[0] : $t;
+			if ( in_array( $id, array( T_WHITESPACE, T_COMMENT, T_DOC_COMMENT ), true ) ) {
+				continue;
+			}
+			switch ( $state ) {
+				case 'open':
+					if ( T_OPEN_TAG !== $id ) {
+						return false;
+					}
+					$state = 'return';
+					break;
+				case 'return':
+					if ( T_RETURN !== $id ) {
+						return false;
+					}
+					$state = 'array';
+					break;
+				case 'array':
+					if ( ';' === $id ) {
+						$state = 'done';
+					} elseif ( T_STRING === $id && in_array( strtolower( $t[1] ), array( 'null', 'true', 'false' ), true ) ) {
+						// wp-mail-smtp-pro's writes 'domain'=>NULL.
+						continue 2;
+					} elseif ( ! in_array( $id, $ok, true ) && ! in_array( $id, array( '[', ']', ',', '.' ), true ) ) {
+						return false;
+					}
+					break;
+				case 'done':
+					if ( T_CLOSE_TAG !== $id ) {
+						return false;
+					}
+					break;
+			}
+		}
+		return 'done' === $state;
+	}
+
+	/**
+	 * MailPoet's compiled Twig template cache, by folder, name and first
+	 * line. Two generations: current MailPoet's `use MailPoetVendor\Twig\...`
+	 * block, and older builds' `class __TwigTemplate_<hash> extends
+	 * Twig_Template` straight after the template's name.
+	 */
+	public static function is_twig_cache( string $rel_path, ?string $head ): bool {
+		return null !== $head
+			&& (bool) preg_match( '#(?:^|/)uploads/mailpoet(?:-premium)?/cache/[0-9a-f]{2}/[0-9a-f]{64}\.php$#', self::single_site_uploads( $rel_path ) )
+			&& (bool) preg_match( '/\A<\?php\s+(?:use MailPoetVendor\\\\Twig\\\\|\/\*[^*]{1,200}\*\/\s*class __TwigTemplate_[0-9a-f]{64} extends Twig_Template\b)/', $head );
 	}
 
 	/**
