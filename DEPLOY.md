@@ -57,6 +57,12 @@ says so. Warn whoever reads the alerts first.
 6. Re-sign the baseline.
 7. Resolve the upgrade's L8 and L9 findings.
 
+### 0.4.11 to 0.4.12
+
+The steps above. Upload the zip's `mu-plugins/` contents only, never a
+checkout of the repository: tests and a renamed old copy left in
+`mu-plugins/` show up as S6 findings and are read by every detector.
+
 ### 0.4.10 to 0.4.11
 
 The steps above. On 0.4.8 to 0.4.10, resolve any open F11, D1 or P1

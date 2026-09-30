@@ -41,6 +41,20 @@ final class Sky_Sentinel_Content_Detectors {
 	private const TEMP_PROBE  = '/sys_get_temp_dir\s*\(|session_save_path\s*\(|upload_tmp_dir|\/dev\/shm/';
 	private const INCLUDE_VAR = '/\b(?:include|include_once|require|require_once)\s*\(?\s*\$/';
 	private const LURE_STRONG = array( 'mshta', 'powershell -', 'cmd /c', 'Win + R', 'Windows + R', 'Command + Space', 'Cmd + Space' );
+	/**
+	 * Strong terms by shape, case-insensitive like the list above since
+	 * 0.4.12. From Huntress's September 2026 write-up of the ChatGPT Custom
+	 * GPT ClickFix campaign, whose command was
+	 *   "C:\...\PowerShell.exe" -ExecutionPolicy Bypass "irm 1614733393/12 | ..."
+	 * which the lowercase 'powershell -' never saw: PowerShell run with a
+	 * flag, however it is quoted; a download from a host written as one
+	 * decimal number (96.62.224.81 as 1614733393), which no real software
+	 * links to.
+	 */
+	private const LURE_STRONG_RE = array(
+		'PowerShell with a flag'           => '/\bpowershell(?:\.exe)?["\']?\s+-[a-z]/i',
+		'download from a decimal-IP host'  => '/(?:\b(?:irm|iwr|curl|wget|invoke-restmethod|invoke-webrequest)\s+(?:-uri\s+)?["\']?(?:https?:\/\/)?|\bhttps?:\/\/)\d{8,10}(?![\d.a-z-])/i',
+	);
 	// Weak terms in CATEGORIES. A lure needs two different ideas: a fake
 	// verification AND a clipboard write, or steps to perform AND a
 	// verification. Two terms from one category is one idea. Counting terms
@@ -204,7 +218,12 @@ final class Sky_Sentinel_Content_Detectors {
 		// the victim to run) is enough; weak terms need two, because a real
 		// captcha plugin legitimately says "I am not a robot".
 		if ( ! $this->sig->allowed( 'f14_lure_text', $rel_path ) ) {
-			$strong = array_values( array_filter( self::LURE_STRONG, fn( $t ) => str_contains( $bytes, $t ) ) );
+			$strong = array_values( array_filter( self::LURE_STRONG, fn( $t ) => false !== stripos( $bytes, $t ) ) );
+			foreach ( self::LURE_STRONG_RE as $name => $re ) {
+				if ( preg_match( $re, $bytes ) ) {
+					$strong[] = $name;
+				}
+			}
 			$weak   = array();
 			$categories = 0;
 			foreach ( self::LURE_WEAK as $terms ) {

