@@ -57,6 +57,12 @@ says so. Warn whoever reads the alerts first.
 6. Re-sign the baseline.
 7. Resolve the upgrade's L8 and L9 findings.
 
+### 0.4.9 to 0.4.10
+
+The steps above, then resolve open S4 CRITICALs on web pages saved under a
+picture's name: the next scan reopens each as MEDIUM if it carries nothing,
+or CRITICAL naming what it carries.
+
 ### 0.4.8 to 0.4.9
 
 The steps above, then resolve open S3 HIGHs on `languages/` `.l10n.php`

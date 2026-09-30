@@ -325,3 +325,27 @@ test('S3: MailPoet\'s compiled Twig cache is not flagged; the same file anywhere
         expect($fs->check_file($p, 500, $h)[0]->severity)->toBe('high');
     }
 });
+
+test('S4: a web page under a picture\'s name is MEDIUM when it carries nothing, CRITICAL when it carries a lure or the loader', function () {
+    // Sixteen CRITICALs on one real site: old 404 pages and saved pages
+    // stored where a picture or PDF should have been.
+    $fs = sentinel_fs();
+    $page = sentinel_fixture('clean/saved-404-page.jpg.txt');
+    $f = $fs->check_file('wp-content/uploads/2002/10/portrait.jpg', strlen($page), substr($page, 0, 256), null, null, null, $page);
+    expect(sentinel_ids($f))->toBe(array('S4'))->and($f[0]->severity)->toBe('medium');
+    $pdf = $fs->check_file('wp-content/uploads/2018/09/screening.pdf', strlen($page), substr($page, 0, 256), null, null, null, $page);
+    expect($pdf[0]->severity)->toBe('medium');
+
+    $lure = '<!DOCTYPE html><html><body>' . sentinel_fixture('bad/clickfix-lure.html.txt') . '</body></html>';
+    $f = $fs->check_file('wp-content/uploads/2026/09/verify.jpg', strlen($lure), substr($lure, 0, 256), null, null, null, $lure);
+    expect($f[0]->severity)->toBe('critical')->and($f[0]->detail['carries'])->toContain('F14');
+
+    $loader = '<!DOCTYPE html><html><body><script>' . sentinel_fixture('bad/loader-wholefile.js.txt') . '</script></body></html>';
+    $f = $fs->check_file('wp-content/uploads/2026/09/banner.png', strlen($loader), substr($loader, 0, 256), null, null, null, $loader);
+    expect($f[0]->severity)->toBe('critical')->and($f[0]->detail['carries'])->toContain('F10');
+
+    // Not read: no way to vouch for it, so still CRITICAL.
+    expect($fs->check_file('wp-content/uploads/2002/10/portrait.jpg', strlen($page), substr($page, 0, 256))[0]->severity)->toBe('critical');
+    // PHP under a picture's name is CRITICAL whatever it says.
+    expect($fs->check_file('wp-content/uploads/a.jpg', 20, '<?php echo 1;', null, null, null, '<?php echo 1;')[0]->severity)->toBe('critical');
+});

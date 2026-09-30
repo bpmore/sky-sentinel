@@ -1,0 +1,13 @@
+<html>
+<head>
+	<title>404 Error - Page Not Found - Example University</title>
+	<meta name="keywords" content="">
+	<link rel="STYLESHEET" type="text/css" href="/_web_style.css">
+</head>
+<body leftmargin="0" topmargin="0">
+<table width="760"><tr><td><img src="/images/header.gif" alt=""></td></tr>
+<tr><td><p>The page you requested could not be found.</p>
+<script language="JavaScript">function MM_swapImgRestore(){var i,x,a=document.MM_sr;for(i=0;a&&i<a.length&&(x=a[i])&&x.oSrc;i++)x.src=x.oSrc;}</script>
+<a href="/">Return to the home page</a></td></tr></table>
+</body>
+</html>

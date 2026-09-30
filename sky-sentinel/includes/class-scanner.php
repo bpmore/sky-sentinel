@@ -161,6 +161,12 @@ final class Sky_Sentinel_Scanner {
 					}
 				} else {
 					$head = self::head( $child_abs );
+					// A web page under a picture's name in uploads/: read it,
+					// so S4 can tell a broken upload from a disguised lure.
+					if ( null !== $head && $size <= 8388608 && in_array( $ext, Sky_Sentinel_FS_Checks::MEDIA_EXTENSIONS, true )
+						&& 'HTML' === Sky_Sentinel_FS_Checks::disguised_as( $head, $ext ) ) {
+						$bytes = @file_get_contents( $child_abs );
+					}
 				}
 
 				$stat = $in_uploads ? false : @stat( $child_abs );

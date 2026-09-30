@@ -211,3 +211,21 @@ test('the walk hands S3 the bytes it read, so a translation file is recognised a
         @unlink($manifest);
     }
 });
+
+test('the walk reads a web page it finds under a picture\'s name in uploads, and only that', function () {
+    $root = sys_get_temp_dir() . '/sentinel-' . bin2hex(random_bytes(4));
+    $manifest = $root . '.manifest';
+    mkdir("{$root}/wp-content/uploads/2002/10", 0777, true);
+    file_put_contents("{$root}/wp-content/uploads/2002/10/old-404.jpg", sentinel_fixture('clean/saved-404-page.jpg.txt'));
+    file_put_contents("{$root}/wp-content/uploads/2002/10/verify.jpg", '<!DOCTYPE html><html><body>' . sentinel_fixture('bad/clickfix-lure.html.txt') . '</body></html>');
+    try {
+        $r = (new Sky_Sentinel_Scanner($root, sentinel_signatures()))->scan_all($manifest);
+        $by = array();
+        foreach ($r['findings'] as $f) { $by[$f->subject] = $f->severity; }
+        ksort($by);
+        expect($by)->toBe(array('wp-content/uploads/2002/10/old-404.jpg' => 'medium', 'wp-content/uploads/2002/10/verify.jpg' => 'critical'));
+    } finally {
+        sentinel_rm($root);
+        @unlink($manifest);
+    }
+});

@@ -315,3 +315,21 @@ proves the file is data; it parses, never runs.
 inside MailPoet's cache folder is not an S3; uploads/ is not content-scanned,
 so the rendered-page check and the live hooks are what remain.
 
+---
+
+## A web page under a picture's name is judged by what it carries
+
+**Decision.** When S4 finds HTML under a media extension, the walk reads the
+file and runs the content detectors over it. Anything at HIGH or above
+makes S4 CRITICAL and names it; nothing makes it MEDIUM, a broken upload. A
+file that could not be read stays CRITICAL; PHP or a zip is CRITICAL as
+before.
+
+**Why.** Sites that have run for years collect pages stored where a picture
+should be: a 404 page, a login page, a saved copy of the site. Every one was
+a CRITICAL. A web page in uploads is dangerous for what it carries, and the
+content detectors are what know that.
+
+**Limits.** S4 sees HTML only when the file starts with `<!DOCTYPE`, `<html`
+or `<script`; a fragment starting `<div` is not an S4 at all.
+

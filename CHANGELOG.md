@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.4.10
+
+- **A web page saved under a picture's name is read before it is called
+  CRITICAL.** S4 runs the content detectors over it (lure, loader,
+  indicators, service worker). Carrying any of them at HIGH or above, it is
+  CRITICAL and names them; carrying nothing, it is MEDIUM, a broken upload
+  (old 404 pages, a saved page, a login page stored where an image or PDF
+  should be). PHP or a zip under a picture's name is CRITICAL as before.
+- 206 tests (was 204).
+
 ## 0.4.9
 
 Two S3 false positives that fired HIGH on every affected site.

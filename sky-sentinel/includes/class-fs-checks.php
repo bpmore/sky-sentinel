@@ -43,6 +43,13 @@ final class Sky_Sentinel_FS_Checks {
 
 	private Sky_Sentinel_Signatures $sig;
 
+	private ?Sky_Sentinel_Content_Detectors $content = null;
+
+	/** S4 reads a web page found under a picture's name with the content detectors. */
+	private function content(): Sky_Sentinel_Content_Detectors {
+		return $this->content ??= new Sky_Sentinel_Content_Detectors( $this->sig );
+	}
+
 	public function __construct( Sky_Sentinel_Signatures $sig ) {
 		$this->sig = $sig;
 	}
@@ -56,7 +63,7 @@ final class Sky_Sentinel_FS_Checks {
 	 * @param int|null    $mode     fileperms(), for S9. Null when the walker did not stat.
 	 * @param int|null    $mtime    filemtime(), for S9.
 	 * @param int|null    $ctime    filectime(), for S9.
-	 * @param string|null $bytes    The whole file, when the walker read it (outside uploads/, up to 8 MB). S3 reads it to tell translation data from code.
+	 * @param string|null $bytes    The whole file, when the walker read it (outside uploads/, and a web page under a media name inside it; up to 8 MB). S3 reads it to tell translation data from code; S4 to see what a disguised web page carries.
 	 * @return Sky_Sentinel_Finding[]
 	 */
 	public function check_file( string $rel_path, int $size, ?string $head, ?int $mode = null, ?int $mtime = null, ?int $ctime = null, ?string $bytes = null ): array {
@@ -117,6 +124,21 @@ final class Sky_Sentinel_FS_Checks {
 				// stored. Common inside e-learning packages with hundreds of
 				// small images. Broken, not hostile.
 				$f( 'S4', 'medium', "A .{$ext} that is a saved server error page (broken upload, re-upload the image)", array( 'magic' => bin2hex( substr( $head, 0, 4 ) ) ) );
+			} elseif ( 'HTML' === $kind && null !== $bytes ) {
+				// A web page under a picture's name is dangerous for what it
+				// carries. Read it with the content detectors (a lure, the
+				// loader, an indicator, a service worker). One real site had
+				// sixteen, all carrying nothing: old 404 pages, a saved
+				// WordPress page, an "Application Error", a third-party
+				// login page. Each was stored where a picture or PDF should
+				// have been.
+				$carried = array_values( array_filter( $this->content()->scan_any( 'disguised/' . $base . '.html', $bytes ), fn( $x ) => $x->is_at_least( 'high' ) ) );
+				if ( $carried ) {
+					$ids = array_values( array_unique( array_map( fn( $x ) => $x->detector, $carried ) ) );
+					$f( 'S4', 'critical', "A .{$ext} whose bytes are HTML carrying " . implode( ', ', $ids ) . ": {$carried[0]->summary}", array( 'magic' => bin2hex( substr( $head, 0, 4 ) ), 'carries' => $ids ) );
+				} else {
+					$f( 'S4', 'medium', "A .{$ext} that is a saved web page, carrying no loader, lure or indicator (broken upload, re-upload the file)", array( 'magic' => bin2hex( substr( $head, 0, 4 ) ) ) );
+				}
 			} elseif ( null !== $kind ) {
 				$f( 'S4', 'critical', "A .{$ext} whose first bytes are {$kind}", array( 'magic' => bin2hex( substr( $head, 0, 4 ) ) ) );
 			}
