@@ -90,6 +90,29 @@ $lg_site  = function ( int $blog_id ): string {
 			</tbody>
 		</table>
 	</div>
+	<?php
+	$lg_users = $data['findings']->login_users( 14 );
+	if ( function_exists( 'cache_users' ) ) {
+		cache_users( array_column( $lg_users, 'user_id' ) ); // one query for every name below
+	}
+	?>
+	<h3>Who logged in (<?php echo (int) count( $lg_users ); ?>)</h3>
+	<div style="max-width:900px;max-height:420px;overflow:auto;border:1px solid #ccd0d4">
+		<table class="widefat striped" style="border:0">
+			<thead><tr><th>User</th><th>Name</th><th>Logins</th><th>Sites</th><th>Last login (UTC)</th></tr></thead>
+			<tbody>
+			<?php foreach ( $lg_users as $u ) : $wp_user = get_userdata( $u['user_id'] ); ?>
+				<tr>
+					<td><?php echo $wp_user ? esc_html( $wp_user->user_login ) : '<em>deleted user #' . (int) $u['user_id'] . '</em>'; ?><?php echo $u['admin'] ? ' <strong>(admin)</strong>' : ''; ?></td>
+					<td><?php echo $wp_user ? esc_html( $wp_user->display_name ) : '&mdash;'; ?></td>
+					<td><?php echo (int) $u['logins']; ?></td>
+					<td><?php echo (int) $u['sites']; ?></td>
+					<td><?php echo esc_html( substr( $u['last_at'], 0, 16 ) ); ?></td>
+				</tr>
+			<?php endforeach; ?>
+			</tbody>
+		</table>
+	</div>
 <?php endif; ?>
 
 <h2>Block list</h2>

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.4.15
+
+- **The Logins box names who logged in**: one row per person over the last
+  14 days, most recent first, with login and display name, number of
+  logins and sites, last login, and "(admin)" for administrators. Up to
+  1,000 people, in a scrolling table.
+
 ## 0.4.14
 
 - **A Logins box on the Dashboard.** Every successful login by anyone, not

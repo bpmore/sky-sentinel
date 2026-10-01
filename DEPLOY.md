@@ -62,6 +62,10 @@ says so. Warn whoever reads the alerts first.
 The steps above; nothing to resolve. The Logins box reads the event log, so
 it is full from the first page load.
 
+### 0.4.14 to 0.4.15
+
+The steps above; nothing to resolve.
+
 ### 0.4.12 to 0.4.13
 
 The steps above; nothing to resolve. The Dashboard's Block list starts with

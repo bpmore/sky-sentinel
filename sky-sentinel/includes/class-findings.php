@@ -348,6 +348,27 @@ final class Sky_Sentinel_Findings {
 	}
 
 	/**
+	 * Who logged in over the last $days days: one row per person, most
+	 * recent first, with how often, on how many sites, and whether as an
+	 * administrator. Names are looked up by the caller (get_userdata), so a
+	 * renamed account shows its current login.
+	 *
+	 * @return array<int,array{user_id:int,logins:int,sites:int,admin:bool,last_at:string}>
+	 */
+	public function login_users( int $days = 14, int $limit = 1000 ): array {
+		$since = gmdate( 'Y-m-d 00:00:00', time() - ( $days - 1 ) * DAY_IN_SECONDS );
+		$rows  = (array) $this->db->get_results( $this->db->prepare(
+			"SELECT user_id, COUNT(*) AS logins, COUNT(DISTINCT blog_id) AS sites, MAX(detail LIKE %s) AS admin, MAX(at) AS last_at
+			 FROM {$this->events} WHERE kind = 'login' AND at >= %s AND user_id IS NOT NULL
+			 GROUP BY user_id ORDER BY last_at DESC, user_id LIMIT %d",
+			'%"privileged":true%',
+			$since,
+			$limit
+		) );
+		return array_map( fn( $r ) => array( 'user_id' => (int) $r->user_id, 'logins' => (int) $r->logins, 'sites' => (int) $r->sites, 'admin' => (bool) (int) $r->admin, 'last_at' => (string) $r->last_at ), $rows );
+	}
+
+	/**
 	 * Pure. Query rows (day, logins, people, admins) as one entry per day for
 	 * the last $days days, newest first, with zeros for days nobody logged in.
 	 */
