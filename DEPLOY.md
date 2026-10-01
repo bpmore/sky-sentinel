@@ -57,6 +57,11 @@ says so. Warn whoever reads the alerts first.
 6. Re-sign the baseline.
 7. Resolve the upgrade's L8 and L9 findings.
 
+### 0.4.13 to 0.4.14
+
+The steps above; nothing to resolve. The Logins box reads the event log, so
+it is full from the first page load.
+
 ### 0.4.12 to 0.4.13
 
 The steps above; nothing to resolve. The Dashboard's Block list starts with

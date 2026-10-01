@@ -301,6 +301,70 @@ final class Sky_Sentinel_Findings {
 		return array_keys( $out );
 	}
 
+	/**
+	 * Logins by day over the last $days days (UTC), from the event log every
+	 * login already writes: how many, how many different people, how many
+	 * by administrators. Read-only and never an alert. The privileged flag
+	 * is matched as text so it works on MySQL without JSON functions.
+	 *
+	 * @return array<string,array{logins:int,people:int,admins:int}> date => counts, newest first, zero days included
+	 */
+	public function login_days( int $days = 14 ): array {
+		$since = gmdate( 'Y-m-d 00:00:00', time() - ( $days - 1 ) * DAY_IN_SECONDS );
+		$rows  = (array) $this->db->get_results( $this->db->prepare(
+			"SELECT DATE(at) AS day, COUNT(*) AS logins, COUNT(DISTINCT user_id) AS people, SUM(detail LIKE %s) AS admins
+			 FROM {$this->events} WHERE kind = 'login' AND at >= %s GROUP BY DATE(at)",
+			'%"privileged":true%',
+			$since
+		) );
+		return self::fill_days( $rows, time(), $days );
+	}
+
+	/**
+	 * Totals over the same window, and the sites with the most logins.
+	 *
+	 * @return array{logins:int,people:int,admins:int,sites:array<int,array{blog_id:int,logins:int,people:int}>}
+	 */
+	public function login_totals( int $days = 14, int $top = 10 ): array {
+		$since = gmdate( 'Y-m-d 00:00:00', time() - ( $days - 1 ) * DAY_IN_SECONDS );
+		$all   = $this->db->get_row( $this->db->prepare(
+			"SELECT COUNT(*) AS logins, COUNT(DISTINCT user_id) AS people, COUNT(DISTINCT CASE WHEN detail LIKE %s THEN user_id END) AS admins
+			 FROM {$this->events} WHERE kind = 'login' AND at >= %s",
+			'%"privileged":true%',
+			$since
+		) );
+		$sites = (array) $this->db->get_results( $this->db->prepare(
+			"SELECT blog_id, COUNT(*) AS logins, COUNT(DISTINCT user_id) AS people
+			 FROM {$this->events} WHERE kind = 'login' AND at >= %s GROUP BY blog_id ORDER BY logins DESC, blog_id LIMIT %d",
+			$since,
+			$top
+		) );
+		return array(
+			'logins' => (int) ( $all->logins ?? 0 ),
+			'people' => (int) ( $all->people ?? 0 ),
+			'admins' => (int) ( $all->admins ?? 0 ),
+			'sites'  => array_map( fn( $r ) => array( 'blog_id' => (int) $r->blog_id, 'logins' => (int) $r->logins, 'people' => (int) $r->people ), $sites ),
+		);
+	}
+
+	/**
+	 * Pure. Query rows (day, logins, people, admins) as one entry per day for
+	 * the last $days days, newest first, with zeros for days nobody logged in.
+	 */
+	public static function fill_days( array $rows, int $now, int $days ): array {
+		$by = array();
+		foreach ( $rows as $r ) {
+			$r = (object) $r;
+			$by[ (string) $r->day ] = array( 'logins' => (int) $r->logins, 'people' => (int) $r->people, 'admins' => (int) $r->admins );
+		}
+		$out = array();
+		for ( $i = 0; $i < $days; $i++ ) {
+			$d         = gmdate( 'Y-m-d', $now - $i * 86400 );
+			$out[ $d ] = $by[ $d ] ?? array( 'logins' => 0, 'people' => 0, 'admins' => 0 );
+		}
+		return $out;
+	}
+
 	public function recent_events( int $limit = 50 ): array {
 		return (array) $this->db->get_results( $this->db->prepare( "SELECT * FROM {$this->events} ORDER BY at DESC LIMIT %d", $limit ) );
 	}

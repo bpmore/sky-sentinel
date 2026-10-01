@@ -59,6 +59,39 @@ if ( empty( $tally['since'] ) ) :
 	</table>
 <?php endif; ?>
 
+<h2>Logins</h2>
+<?php
+$lg_days  = $data['findings']->login_days( 14 );
+$lg_total = $data['findings']->login_totals( 14 );
+$lg_site  = function ( int $blog_id ): string {
+	if ( is_multisite() && $blog_id > 0 && ( $s = get_site( $blog_id ) ) ) {
+		return $s->domain . untrailingslashit( $s->path );
+	}
+	return $blog_id > 0 ? "site {$blog_id}" : 'network';
+};
+?>
+<p style="max-width:900px">Every successful login, by anyone, as Sentinel's event log records it: never an alert. Only administrators' logins are judged (L1). Last 14 days, UTC: <strong><?php echo (int) $lg_total['logins']; ?></strong> logins by <strong><?php echo (int) $lg_total['people']; ?></strong> people, <?php echo (int) $lg_total['admins']; ?> of them administrators.</p>
+<?php if ( $lg_total['logins'] ) : ?>
+	<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;max-width:900px">
+		<table class="widefat striped">
+			<thead><tr><th>Day</th><th>Logins</th><th>People</th><th>Admin logins</th></tr></thead>
+			<tbody>
+			<?php foreach ( $lg_days as $day => $d ) : ?>
+				<tr><td><?php echo esc_html( $day ); ?></td><td><?php echo (int) $d['logins']; ?></td><td><?php echo (int) $d['people']; ?></td><td><?php echo (int) $d['admins']; ?></td></tr>
+			<?php endforeach; ?>
+			</tbody>
+		</table>
+		<table class="widefat striped">
+			<thead><tr><th>Busiest sites</th><th>Logins</th><th>People</th></tr></thead>
+			<tbody>
+			<?php foreach ( $lg_total['sites'] as $s ) : ?>
+				<tr><td><?php echo esc_html( $lg_site( $s['blog_id'] ) ); ?></td><td><?php echo (int) $s['logins']; ?></td><td><?php echo (int) $s['people']; ?></td></tr>
+			<?php endforeach; ?>
+			</tbody>
+		</table>
+	</div>
+<?php endif; ?>
+
 <h2>Block list</h2>
 <?php
 $bl_ip  = $data['runner']->block_list( false );

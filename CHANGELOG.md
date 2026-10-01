@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.4.14
+
+- **A Logins box on the Dashboard.** Every successful login by anyone, not
+  just administrators, by day for the last 14 days (UTC): logins, different
+  people and administrator logins, plus the 10 busiest sites. It reads the
+  event log Sentinel already writes for every login, and never alerts.
+- 218 tests (was 217).
+
 ## 0.4.13
 
 - **A block list on the Dashboard.** Every address with 5 or more failed

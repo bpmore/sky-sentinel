@@ -397,3 +397,20 @@ L7 bursts come from the findings table whatever their status.
 **Rejected.** *Blocking from WordPress*: attempts would still reach PHP, and
 a wrong range would lock administrators out of the place it is managed.
 
+---
+
+## Every login is counted on the Dashboard, and none of it alerts
+
+**Decision.** The Dashboard shows logins by day for 14 days (logins,
+distinct people, administrator logins) and the 10 busiest sites, from the
+event log rows written for every successful login. Nothing about an
+ordinary user's login alerts.
+
+**Why.** On a large network hundreds of people log in, only
+administrators' logins are judged, and nobody could say how many there
+were without querying the database by hand.
+
+**How it reads.** Two grouped queries on indexed columns; the
+administrator flag is matched as text in the stored JSON, so it runs on any
+MySQL. The event log is never pruned: one row per login.
+

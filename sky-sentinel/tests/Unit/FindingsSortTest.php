@@ -43,3 +43,18 @@ test('detector filter: real detector ids pass, uppercased; anything else means a
         expect(Sky_Sentinel_Findings::detector_of($bad))->toBe('', $bad);
     }
 });
+
+test('logins by day: every day in the window, newest first, zeros where nobody logged in', function () {
+    $now  = 1790380800 + 3600; // 2026-09-26 01:00 UTC
+    $rows = array(
+        array('day' => '2026-09-26', 'logins' => '412', 'people' => '187', 'admins' => '9'),
+        array('day' => '2026-09-24', 'logins' => '3', 'people' => '2', 'admins' => '0'),
+        array('day' => '2026-09-01', 'logins' => '50', 'people' => '40', 'admins' => '1'), // outside the window
+    );
+    $days = Sky_Sentinel_Findings::fill_days($rows, $now, 3);
+    expect($days)->toBe(array(
+        '2026-09-26' => array('logins' => 412, 'people' => 187, 'admins' => 9),
+        '2026-09-25' => array('logins' => 0, 'people' => 0, 'admins' => 0),
+        '2026-09-24' => array('logins' => 3, 'people' => 2, 'admins' => 0),
+    ));
+});
