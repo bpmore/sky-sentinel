@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.4.16
+
+- **A modern Office file under its old name is INFO, not CRITICAL (S4).**
+  A `.doc`, `.xls` or `.ppt` whose bytes are a ZIP is checked for an Office
+  Open XML or OpenDocument structure by the first entry in the archive
+  (`[Content_Types].xml`, `_rels/.rels`, `docProps/…`, or an OpenDocument
+  `mimetype`): a `.docx` saved as `.doc` is mislabelled, not disguised. Any
+  other ZIP under those names is still CRITICAL, as is a picture or PDF whose
+  bytes are an Office file. An existing CRITICAL row for such a file turns
+  INFO on the next scan.
+- 224 tests.
+
 ## 0.4.15
 
 - **The Logins box names who logged in**: one row per person over the last

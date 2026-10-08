@@ -373,3 +373,58 @@ test('S4: markup that starts with any tag is a web page, so a <div> lure under a
         // "< " and "<3" are not tags.
         ->and($fs->check_file('wp-content/uploads/x.doc', 100, '< 5 items'))->toBe(array());
 });
+
+// ---- S4: a modern Office file under its old name (0.4.16) ----------------
+// A department's guidelines document, saved by Word as .docx but uploaded as
+// .doc, was CRITICAL "a .doc whose first bytes are a ZIP archive".
+
+/** The first 256 bytes of a ZIP whose first entry is $name, as the walker reads them. */
+function sentinel_zip_head(string $name, string $after = ''): string {
+    $h = "PK\x03\x04" . str_repeat("\0", 22) . pack('v', strlen($name)) . pack('v', 0) . $name . $after;
+    return substr($h . str_repeat("\x9c", 256), 0, 256);
+}
+
+function sentinel_s4(string $path, string $head): array {
+    $out = array();
+    foreach ((new Sky_Sentinel_FS_Checks(sentinel_signatures()))->check_file($path, 27595, $head) as $f) {
+        if ('S4' === $f->detector) { $out[] = $f; }
+    }
+    return $out;
+}
+
+test('S4: a .doc, .xls or .ppt that is really a modern Office file is INFO, and names the right extension', function () {
+    $doc = sentinel_s4('wp-content/uploads/2026/09/Proposal-Guidelines.doc', sentinel_zip_head('[Content_Types].xml'));
+    expect($doc)->toHaveCount(1)->and($doc[0]->severity)->toBe('info')
+        ->and($doc[0]->summary)->toContain('Re-upload it as .docx')->not->toContain('LEGACY_OFFICE')
+        ->and($doc[0]->detail['first_entry'])->toBe('[Content_Types].xml');
+    expect(sentinel_s4('wp-content/uploads/a.xls', sentinel_zip_head('_rels/.rels'))[0]->severity)->toBe('info')
+        ->and(sentinel_s4('wp-content/uploads/a.xls', sentinel_zip_head('_rels/.rels'))[0]->summary)->toContain('.xlsx')
+        ->and(sentinel_s4('wp-content/uploads/a.ppt', sentinel_zip_head('docProps/app.xml'))[0]->summary)->toContain('.pptx');
+});
+
+test('S4: an OpenDocument file under an old Office name is INFO too', function () {
+    $odt = sentinel_zip_head('mimetype', 'application/vnd.oasis.opendocument.text');
+    expect(sentinel_s4('wp-content/uploads/a.doc', $odt)[0]->severity)->toBe('info');
+});
+
+test('S4: a .doc whose ZIP is anything else is still CRITICAL', function () {
+    foreach (array(sentinel_zip_head('site-helper.php'), sentinel_zip_head('restore/plugin.php'), sentinel_zip_head('mimetype', 'application/x-something'), "PK\x03\x04short") as $head) {
+        expect(sentinel_s4('wp-content/uploads/a.doc', $head)[0]->severity)->toBe('critical');
+    }
+});
+
+test('S4: a picture whose bytes are an Office file is still CRITICAL: a picture has no business being one', function () {
+    foreach (array('jpg', 'png', 'pdf', 'gif') as $ext) {
+        expect(sentinel_s4("wp-content/uploads/a.{$ext}", sentinel_zip_head('[Content_Types].xml'))[0]->severity)->toBe('critical', $ext);
+    }
+});
+
+test('S4: a .docx is a ZIP by definition and is not flagged at all', function () {
+    expect(sentinel_s4('wp-content/uploads/a.docx', sentinel_zip_head('[Content_Types].xml')))->toBe(array());
+});
+
+test('zip_first_entry reads the name at byte 30, and refuses what is not a ZIP header', function () {
+    expect(Sky_Sentinel_FS_Checks::zip_first_entry(sentinel_zip_head('word/document.xml')))->toBe('word/document.xml')
+        ->and(Sky_Sentinel_FS_Checks::zip_first_entry("\xFF\xD8\xFF\xE0 jpeg"))->toBeNull()
+        ->and(Sky_Sentinel_FS_Checks::zip_first_entry("PK\x03\x04" . str_repeat("\0", 22) . pack('v', 200) . pack('v', 0) . 'cut'))->toBeNull();
+});

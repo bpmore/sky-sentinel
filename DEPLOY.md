@@ -62,6 +62,12 @@ says so. Warn whoever reads the alerts first.
 The steps above; nothing to resolve. The Logins box reads the event log, so
 it is full from the first page load.
 
+### 0.4.15 to 0.4.16
+
+The ordinary procedure. After the next scan, any S4 on a `.doc`, `.xls` or
+`.ppt` that is really a modern Office file reads INFO: re-upload the file
+under its right extension, or resolve it with a note.
+
 ### 0.4.14 to 0.4.15
 
 The steps above; nothing to resolve.

@@ -32,6 +32,13 @@ final class Sky_Sentinel_FS_Checks {
 	/** S3: directories where PHP has no business being. */
 	public const NO_PHP_HERE = array( 'uploads/', 'blogs.dir/', 'languages/', 'cache/', 'upgrade/', 'upgrade-temp-backup/' );
 
+	/**
+	 * S4: old Office extensions, and the modern format each was replaced by.
+	 * The modern formats are ZIP archives, so a .docx saved or renamed as
+	 * .doc starts with a ZIP's bytes. See is_office_zip().
+	 */
+	public const LEGACY_OFFICE = array( 'doc' => 'docx', 'xls' => 'xlsx', 'ppt' => 'pptx' );
+
 	/** S4: extensions that promise an image or a document. */
 	public const MEDIA_EXTENSIONS = array( 'jpg', 'jpeg', 'png', 'gif', 'webp', 'svg', 'bmp', 'ico', 'pdf', 'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'mp3', 'mp4', 'mov', 'zip' );
 
@@ -139,6 +146,15 @@ final class Sky_Sentinel_FS_Checks {
 				} else {
 					$f( 'S4', 'medium', "A .{$ext} that is a saved web page, carrying no loader, lure or indicator (broken upload, re-upload the file)", array( 'magic' => bin2hex( substr( $head, 0, 4 ) ) ) );
 				}
+			} elseif ( 'a ZIP archive' === $kind && isset( self::LEGACY_OFFICE[ $ext ] ) && self::is_office_zip( $head ) ) {
+				// A .docx (or .xlsx, .pptx, OpenDocument file) under its
+				// format's old name: someone saved Word's default as ".doc".
+				// Mislabelled, not disguised. A department's guidelines
+				// document raised this as CRITICAL until 0.4.16. Only the old
+				// Office names are excused: a PICTURE whose bytes are an
+				// Office file is still a lie, and still CRITICAL.
+				$modern = self::LEGACY_OFFICE[ $ext ];
+				$f( 'S4', 'info', "A .{$ext} that is really a modern Office file (.{$modern} or OpenDocument): mislabelled, not disguised. Re-upload it as .{$modern}", array( 'magic' => bin2hex( substr( $head, 0, 4 ) ), 'first_entry' => self::zip_first_entry( $head ) ) );
 			} elseif ( null !== $kind ) {
 				$f( 'S4', 'critical', "A .{$ext} whose first bytes are {$kind}", array( 'magic' => bin2hex( substr( $head, 0, 4 ) ) ) );
 			}
@@ -403,6 +419,40 @@ final class Sky_Sentinel_FS_Checks {
 	}
 
 	/** What a media file's first bytes actually are, or null when they are plausibly media. */
+	/**
+	 * The name of the first entry in a ZIP, read from its first local file
+	 * header (the name starts at byte 30), or null if the bytes are not a
+	 * ZIP header or the name does not fit in what was read.
+	 */
+	public static function zip_first_entry( string $head ): ?string {
+		if ( strlen( $head ) < 30 || ! str_starts_with( $head, "PK\x03\x04" ) ) {
+			return null;
+		}
+		$len = unpack( 'v', substr( $head, 26, 2 ) )[1];
+		if ( $len < 1 || strlen( $head ) < 30 + $len ) {
+			return null;
+		}
+		return substr( $head, 30, $len );
+	}
+
+	/**
+	 * Is this ZIP an Office document, by the entry its writer puts first?
+	 * Word, Excel and PowerPoint write [Content_Types].xml first, and some
+	 * other writers _rels/.rels or docProps/; OpenDocument (LibreOffice)
+	 * writes an uncompressed "mimetype" entry naming its type. A plugin's
+	 * restore archive, a backup or a payload starts with none of these.
+	 */
+	public static function is_office_zip( string $head ): bool {
+		$first = self::zip_first_entry( $head );
+		if ( null === $first ) {
+			return false;
+		}
+		if ( in_array( $first, array( '[Content_Types].xml', '_rels/.rels' ), true ) || str_starts_with( $first, 'docProps/' ) ) {
+			return true;
+		}
+		return 'mimetype' === $first && str_contains( $head, 'application/vnd.oasis.opendocument.' );
+	}
+
 	public static function disguised_as( string $head, string $ext ): ?string {
 		if ( str_starts_with( $head, "PK\x03\x04" ) ) {
 			// Office formats ARE zips. Only a picture claiming to be one is a lie.
