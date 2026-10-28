@@ -29,7 +29,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 final class Sky_Sentinel {
 
-	public const VERSION   = '0.4.16';
+	public const VERSION   = '0.4.17';
 	public const SCAN_HOOK   = 'sky_sentinel_scan';
 	public const TICK_HOOK   = 'sky_sentinel_tick';
 	public const PAGES_HOOK  = 'sky_sentinel_pages';
@@ -75,7 +75,7 @@ final class Sky_Sentinel {
 
 	private function __construct() {
 		global $wpdb;
-		foreach ( array( 'finding', 'signatures', 'content-detectors', 'fs-checks', 'baseline', 'scanner', 'db-checks', 'hook-census', 'network', 'live-rules', 'login-tally', 'session-checks', 'page-check', 'findings', 'alerts', 'runner', 'live-hooks', 'digest' ) as $c ) {
+		foreach ( array( 'finding', 'signatures', 'content-detectors', 'fs-checks', 'baseline', 'scanner', 'db-checks', 'hook-census', 'network', 'live-rules', 'login-tally', 'session-checks', 'page-check', 'findings', 'data-dir', 'alerts', 'runner', 'live-hooks', 'digest' ) as $c ) {
 			require_once __DIR__ . "/includes/class-{$c}.php";
 		}
 		$this->sig      = Sky_Sentinel_Signatures::from_directory( __DIR__ . '/signatures', self::signature_overrides() );
@@ -152,18 +152,10 @@ final class Sky_Sentinel {
 		}
 		$this->findings->install();
 		$dir = self::data_dir();
-		if ( ! is_dir( $dir ) ) {
-			wp_mkdir_p( $dir );
-		}
-		// If the data dir had to fall back under uploads, deny it at the
-		// server too: this is where evidence copies of droppers will sit.
-		if ( str_starts_with( $dir, WP_CONTENT_DIR ) ) {
-			foreach ( array( '.htaccess' => "Require all denied\nDeny from all\n", 'index.html' => '' ) as $name => $body ) {
-				if ( ! file_exists( "{$dir}/{$name}" ) ) {
-					@file_put_contents( "{$dir}/{$name}", $body );
-				}
-			}
-		}
+		// Create it, and if it had to fall back under uploads, deny it at the
+		// server too: this is where evidence copies of droppers will sit. The
+		// same check runs before every scan (Sky_Sentinel_Data_Dir).
+		Sky_Sentinel_Data_Dir::check( $dir, str_starts_with( $dir, rtrim( WP_CONTENT_DIR, '/' ) . '/' ) );
 		update_site_option( 'sky_sentinel_version', self::VERSION );
 		$this->findings->event( 'sentinel.installed', 0, null, null, array( 'version' => self::VERSION, 'data_dir' => $dir ) );
 	}

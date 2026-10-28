@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.17
+
+- **A data folder Sentinel cannot write to is reported, not fatal.** Every scan writes its manifest there first, and an unwritable folder used to end every scan in an uncaught exception: a "critical error" page from Scan now, and every scheduled scan failing silently. The folder is now checked before each scan (created if missing, proved writable with a probe file). When the check fails, no scan starts: a HIGH `SCAN` finding names the folder, its owner and mode, and the user PHP runs as, and alerts once; Scan now shows the same message; the Dashboard shows a notice until it is fixed. A manifest that becomes unwritable mid-walk abandons that run the same way.
+- 229 tests.
+
 ## 0.4.16
 
 - **A modern Office file under its old name is INFO, not CRITICAL (S4).**

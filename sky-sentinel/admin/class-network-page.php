@@ -285,12 +285,18 @@ final class Sky_Sentinel_Network_Page {
 		}
 		if ( ! $this->runner->in_progress() ) {
 			if ( ! empty( $_POST['start'] ) ) {
-				$this->runner->start( 'manual:' . wp_get_current_user()->user_login );
+				if ( ! $this->runner->start( 'manual:' . wp_get_current_user()->user_login ) && null !== $this->runner->last_error() ) {
+					wp_send_json_error( $this->runner->last_error() );
+				}
 			} else {
 				wp_send_json_success( array( 'done' => true, 'idle' => true ) );
 			}
 		}
-		wp_send_json_success( $this->runner->step( 5 ) );
+		$r = $this->runner->step( 5 );
+		if ( ! empty( $r['error'] ) ) {
+			wp_send_json_error( $r['error'] );
+		}
+		wp_send_json_success( $r );
 	}
 
 	private function guard( string $action ): void {

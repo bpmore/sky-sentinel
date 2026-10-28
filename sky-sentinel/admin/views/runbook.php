@@ -52,6 +52,7 @@
 	<tr><th>L10</th><td>A callback on a user-hiding or password hook, judged by where its file lives</td></tr>
 	<tr><th>L11</th><td>WordPress made an on-chain (eth_call) request or called a campaign RPC gateway</td></tr>
 	<tr><th>L12</th><td>A cron schedule that was not there when the baseline was signed</td></tr>
+	<tr><th>SCAN</th><td>HIGH: a scan cannot run because Sentinel cannot write to its data folder (the finding names the folder, its owner and mode, and who PHP runs as). Fix the folder's owner or permissions, or set <code>SKY_SENTINEL_DATA_DIR</code>, then Scan now. INFO: a directory the walk could not read.</td></tr>
 	<tr><th>L13</th><td>No failed logins at all yesterday, after a week that averaged ten or more a day (MEDIUM, digest). Something upstream now blocks attempts, or Sentinel stopped hearing them: fail a login ten times with a made-up username and see whether L7 fires. The Dashboard's Failed logins table shows the week.</td></tr>
 	<tr><th>L1 to L7</th><td>Logins, promotions, packages, the editor, file managers, user enumeration, login bursts, as they happen</td></tr>
 	<tr><th>L8</th><td>Sentinel's own files, or the baseline itself, do not verify</td></tr>

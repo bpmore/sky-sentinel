@@ -48,12 +48,51 @@ final class Sky_Sentinel_Runner {
 	}
 
 	/** Begin a walk. Refuses to start over one already in progress. */
+	/** Why the last start() or step() could not run a scan, or null. */
+	private ?string $last_error = null;
+
+	public function last_error(): ?string {
+		return $this->last_error;
+	}
+
+	/**
+	 * Is the data folder usable? Creates it when missing (it used to be made
+	 * only on install), and writes the deny files when it sits under the web
+	 * root. See Sky_Sentinel_Data_Dir.
+	 *
+	 * @return array{ok: bool, path: string, problem: ?string}
+	 */
+	public function data_dir_status(): array {
+		return Sky_Sentinel_Data_Dir::check( $this->data_dir, str_starts_with( $this->data_dir, rtrim( WP_CONTENT_DIR, '/' ) . '/' ) );
+	}
+
+	/**
+	 * A scan cannot run: record it as a finding (HIGH, so it alerts once) and
+	 * keep the reason for the caller. A tripwire that cannot write has gone
+	 * blind, and that is worth a page even when the cause is a permission.
+	 */
+	private function blocked( string $problem ): void {
+		$this->last_error = "Scans cannot run: {$problem}";
+		$this->record_and_alert( array( new Sky_Sentinel_Finding( 'SCAN', 'high', 'data-dir:' . $this->data_dir, $this->last_error, array( 'path' => $this->data_dir ) ) ) );
+	}
+
 	public function start( string $trigger ): bool {
+		$this->last_error = null;
 		if ( $this->in_progress() ) {
 			return false;
 		}
+		$dir = $this->data_dir_status();
+		if ( ! $dir['ok'] ) {
+			$this->blocked( "Sentinel's data folder {$dir['path']}: {$dir['problem']}. Fix its owner or permissions, or set SKY_SENTINEL_DATA_DIR in the config file." );
+			return false;
+		}
 		$manifest = $this->data_dir . '/manifest-' . gmdate( 'Ymd-His' ) . '.jsonl';
-		$state    = Sky_Sentinel_Scanner::start( $manifest );
+		try {
+			$state = Sky_Sentinel_Scanner::start( $manifest );
+		} catch ( RuntimeException $e ) {
+			$this->blocked( $e->getMessage() );
+			return false;
+		}
 		$state['trigger']  = $trigger;
 		$state['findings'] = array();
 		update_site_option( self::STATE_OPTION, $state );
@@ -71,7 +110,16 @@ final class Sky_Sentinel_Runner {
 			return array( 'done' => true, 'idle' => true );
 		}
 		$scanner = new Sky_Sentinel_Scanner( $this->root, $this->sig );
-		$r       = $scanner->step( $state, $budget );
+		try {
+			$r = $scanner->step( $state, $budget );
+		} catch ( RuntimeException $e ) {
+			// The manifest became unwritable mid-walk (a permission change, a
+			// full disk). Abandon this run rather than retrying it every tick;
+			// the next scheduled scan starts clean and checks the folder first.
+			delete_site_option( self::STATE_OPTION );
+			$this->blocked( $e->getMessage() . ' (' . Sky_Sentinel_Data_Dir::describe( $this->data_dir ) . ')' );
+			return array( 'done' => true, 'error' => $this->last_error );
+		}
 		$state   = $r['state'];
 		foreach ( $r['findings'] as $f ) {
 			$state['findings'][] = $f->to_array();

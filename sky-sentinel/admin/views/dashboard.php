@@ -2,7 +2,14 @@
 if ( ! defined( 'ABSPATH' ) ) { exit; }
 $c = $data['counts']; $last = $data['last_run']; $b = $data['baseline'];
 $nonce = wp_create_nonce( 'sky_sentinel_step' );
+$dir   = $data['runner']->data_dir_status();
 ?>
+<?php if ( ! $dir['ok'] ) : ?>
+	<div class="notice notice-error inline" style="max-width:900px"><p>
+		<strong>Scans cannot run.</strong> Sentinel's data folder <code><?php echo esc_html( $dir['path'] ); ?></code>: <?php echo esc_html( $dir['problem'] ); ?>.
+		Every scan writes its manifest there first. Fix the folder's owner or permissions so PHP can write to it, or set <code>SKY_SENTINEL_DATA_DIR</code> in the config file to a folder it can.
+	</p></div>
+<?php endif; ?>
 <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;max-width:900px">
 	<?php foreach ( array( 'critical' => '#b00020', 'high' => '#e65100', 'medium' => '#8a6d00', 'info' => '#555' ) as $sev => $color ) : ?>
 		<div style="border:1px solid #ccd0d4;border-left:5px solid <?php echo $color; ?>;padding:12px;background:#fff">

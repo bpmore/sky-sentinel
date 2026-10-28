@@ -62,6 +62,10 @@ says so. Warn whoever reads the alerts first.
 The steps above; nothing to resolve. The Logins box reads the event log, so
 it is full from the first page load.
 
+### 0.4.16 to 0.4.17
+
+The ordinary procedure. After it, the Dashboard says so if the data folder is not writable by PHP; fix the folder's owner or permissions (or set `SKY_SENTINEL_DATA_DIR`) and run Scan now. Before 0.4.17 that problem showed only as a "critical error" page from Scan now and a missing heartbeat.
+
 ### 0.4.15 to 0.4.16
 
 The ordinary procedure. After the next scan, any S4 on a `.doc`, `.xls` or
